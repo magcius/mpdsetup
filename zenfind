@@ -1,0 +1,40 @@
+#!/bin/bash
+
+str=$(zenity --entry --text="Text to find." --title="Find a song.")
+
+if [ -n "$str" ]; then
+  list=$(mpc --format "%artist%;%album%;%title%" playlist | grep -i "$str") || list="0"
+  
+  if [ "$list" == "0" ]; then
+    zenity --error --text="No matches were found"
+    exit
+  fi
+  
+  lines=$(echo "$list" | wc -l)
+  
+  if [ "$lines" == "1" ]; then
+    mpc play $(grep -o "^[0-9]\+)" <<< $list | sed 's/[)>]//g')
+    exit
+  fi
+  
+  sel="TRUE"
+  radios=""
+  
+  while read -r i; do
+    temp=$(grep -o "^>\?[0-9]\+)" <<< $i)
+    id=$(sed 's/[)>]//g' <<< $temp)
+    name=$(sed "s/$temp//;s/\"/\\\\\"/g" <<< $i)
+    artist=$(cut -d ";" -f1 <<< $name)
+    album=$(cut -d ";" -f2 <<< $name)
+    title=$(cut -d ";" -f3  <<< $name)
+    radios=$(echo -e "$radios $sel \"$id\" \"$artist\" \"$album\" \"$title\"")
+    sel="FALSE"
+  done <<< "$list"
+  
+  command="zenity --list --radiolist --column= --column=N --column=Artist --column=Album --column=Title $radios"
+  tmp=$(mktemp)
+  echo -e "#!/bin/bash\n$command" > $tmp
+  sel=$(bash $tmp)
+  rm $tmp
+  mpc play $sel
+fi

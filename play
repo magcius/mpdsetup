@@ -1,0 +1,2 @@
+#!/bin/bash
+[ -n "$(mpc | grep "\[playing]")" ] && mpc seek 0 || mpc play;

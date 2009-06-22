@@ -1,0 +1,14 @@
+#!/bin/bash
+
+echo "Removing playlist \"all\"."
+(mpc rm all) > /dev/null
+echo "Updating DB..."
+mpc update > /dev/null
+while (mpc | grep "Updating" > /dev/null); do
+  sleep 2
+done
+echo "Adding new music..."
+mpc clear
+mpc add / > /dev/null
+mpc save all
+echo "Done..."

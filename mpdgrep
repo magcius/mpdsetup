@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# mpdgrep - grep our playlist.
+# JP St. Pierre
+# October 3, 2008
+
+# Create a temp file for our operations.
+TMP=$(mktemp)
+
+# Grep the playlist with our argument to get a a list of all playlist IDs, with line numbers..
+mpc --format "%artist% - %album% - %title%" playlist | grep -i "$*" | grep -no '^[> ][0-9]\+' > $TMP
+
+# Get the line number of the currently playing song.
+playing_line=$(cat $TMP | grep ">" | grep -o '^[0-9]\+')
+
+# Get the total number of lines.
+total=$(wc -l $TMP | grep -o '^[0-9]\+ ')
+
+# If we're not playing a song in the search pattern, play the first one.
+if [ -z "$playing_line" ]; then
+  let "playing_line=0"
+fi
+
+# If we're at the bottom of the list, play the first one again.
+if [ "$playing_line" -eq "$total" ]; then
+  let "playing_line=0"
+fi
+
+# Do some arithmetic to get the number of lines below the currently playing song.
+let "wanted=$total-$playing_line"
+
+# Play our song.
+mpc play $(cat $TMP | tail -$wanted | head -1 | grep -o '[0-9]\+')
+
+# Remove the temp file.
+rm $TMP

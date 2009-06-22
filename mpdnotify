@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# mpdnotify - put up a notification when song changes.
+# JP St. Pierre
+# November 1, 2008
+
+escapify () { python -c 'import cgi; print cgi.escape(raw_input())'; } ;
+
+# Media path. Config this.
+MEDIA_PATH="/media/Sigma/Music/"
+
+# Main loop.
+while true; do
+  
+  status=$(mpc | head -2 | tail -1 | grep -o '\[\(.*\)\]' | python -c"n=raw_input();print n[1].upper()+n[2:-1]")
+  
+  # Get the info.
+  artist=$(mpc --format %artist% | head -1)
+  album=$(mpc --format %album% | head -1)
+  title=$(mpc --format %title% | head -1)
+  track=$(mpc --format %track% | head -1)
+  
+  # Do some magic to get the album art.
+  imagedir=$MEDIA_PATH$(mpc --format %file% | head -1)
+  imagedir=$(dirname "$imagedir")
+  
+  
+  # Get the first .jpg in the directory that we want.
+  image=$(ls "$imagedir" | grep -i ".jpg" | python -c"
+import sys
+g = sys.stdin.read().splitlines()
+if len(g) == 0:
+  sys.exit(0)
+for i in g:
+  if i.lower().startswith(('cover', 'front', 'albumart', 'art', 'album')):
+    print i
+    sys.exit(0)
+print g[0]
+")
+  
+  if [ -n "$image" ]; then
+    img="$imagedir/$(basename "$image" .jpg).small.jpg"
+    # Resize it to the size I want.
+    [ ! -e "$img" ] && convert "$imagedir/$image" -resize 100x100 "$img"
+  else
+    img=''
+  fi
+  
+  # Escapify plz.
+  artist="$(escapify <<< "$artist")"
+  album="$(escapify <<< "$album")"
+  # Send our notification.
+  notify-send -i "$img" "$status: $track. $title" "$(echo -e $artist\\n\\n$album)"
+  
+  # Wait till we get a song change notification.
+  echo "idle" | netcat localhost 6600 | wait
+done
