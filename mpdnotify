@@ -1,5 +1,5 @@
 #!/bin/bash
-
+. ~/.bashrc
 # mpdnotify - put up a notification when song changes.
 # JP St. Pierre
 # November 1, 2008

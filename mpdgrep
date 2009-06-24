@@ -1,5 +1,5 @@
 #!/bin/bash
-
+. ~/.bashrc
 # mpdgrep - grep our playlist.
 # JP St. Pierre
 # October 3, 2008

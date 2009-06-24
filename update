@@ -1,5 +1,5 @@
 #!/bin/bash
-
+. ~/.bashrc
 echo "Removing playlist \"all\"."
 (mpc rm all) > /dev/null
 echo "Updating DB..."

@@ -1,5 +1,5 @@
 #!/bin/bash
-
+. ~/.bashrc
 str=$(zenity --entry --text="Text to find." --title="Find a song.")
 
 if [ -n "$str" ]; then
