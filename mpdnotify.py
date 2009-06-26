@@ -88,7 +88,7 @@ def daemon():
     client = MPDClient()
     client.connect(config.daemon.host, config.daemon.port)
 
-    if int(client.mpd_version.split('.')[1]) < 14:
+    if tuple(int(m) for m in client.mpd_version.split('.')) < (0, 14, 0):
         print "You need a version of mpd that is 0.14 or greater"
         sys.exit(1)
 
