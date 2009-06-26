@@ -5,11 +5,20 @@
 # JP St. Pierre <jstpierre@mecheye.net>
 
 # Requires:
-#   notify
-#   mpd-python
+#   
+#   mpd >= 0.14
+#   
+#   pynotify
+#   
+#   mpd-python (latest development build)
+#     found at http://git.thejat.be/python-mpd.git/
+#   
 #   pygtk (for icon finding)
+#   
 #   configobj (for config reading)
+#     comes with bzr, you can also easy_install configobj
 
+import sys
 import os
 import cgi
 import pynotify
@@ -78,72 +87,79 @@ def daemon():
     
     client = MPDClient()
     client.connect(config.daemon.host, config.daemon.port)
-    
-    while True:
 
-        # Idle for a reason.
-        reason, = client.idle()
+    if int(client.mpd_version.split('.')[1]) < 14:
+        print "You need a version of mpd that is 0.14 or greater"
+        sys.exit(1)
 
-        # If we don't want to display a notification,
-        # don't do so.
-        if "notification_%s" % reason not in config:
-            continue
+    try:
+        while True:
 
-        not_cfg = config["notification_%s" % reason]
-        
-        title_format = PercentTemplate(not_cfg.title_format)
-        body_format  = PercentTemplate(not_cfg.body_format)
-        
-        opts = NamedDict()
-        
-        opts.update(client.status())
-        opts.update(client.stats())
-        opts.update(client.currentsong())
-        opts.update(dict(pretty_state=pretty_state[opts.state]))
-        
-        # Covers are enabled.
-        if not_cfg.as_bool('covers'):
-            path   = os.path.dirname(os.path.join(music_path, opts.file))
-            covers = dict()
-            for filename in os.listdir(path):
-                filename = filename.lower()
-                # This weights by the order in the cover_names, but also so that
-                # a shorter filename comes first, so we won't end up choosing
-                # cover.small.jpg
-                b1, i1 = str_fn_index(filename, str.startswith, cover_names)
-                b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
-                if b1 and b2:
-                    covers[(i1+i2)*100+len(filename)] = filename
-                    cover = sorted(covers.items())[0][1]
-        
-            if len(covers) > 0:
-                cover = os.path.join(path, cover)
-                cover_small  = "%s.small%s" % os.path.splitext(cover)
-                
-                if not os.path.exists(cover_small):
-                    img = Image.open(cover)
-                    print cover_size
-                    img.thumbnail(cover_size, Image.ANTIALIAS)
-                    img.save(cover_small)
-                icon = cover_small
-            else:
-                icon = None
+            # Idle for a reason.
+            reason, = client.idle()
 
-        # Else, use a standard icon. Can be a filename or a tango-named icon.
-        elif not_cfg.icon:
-            icon = not_cfg.icon
-            if not os.path.exists(icon):
-                icon = icon_theme.lookup_icon(icon, 96, 0)
-                if icon:
-                    icon = icon.get_filename()
+            # If we don't want to display a notification,
+            # don't do so.
+            if "notification_%s" % reason not in config:
+                continue
+
+            not_cfg = config["notification_%s" % reason]
+
+            title_format = PercentTemplate(not_cfg.title_format)
+            body_format  = PercentTemplate(not_cfg.body_format)
+
+            opts = NamedDict()
+
+            opts.update(client.status())
+            opts.update(client.stats())
+            opts.update(client.currentsong())
+            opts.update(dict(pretty_state=pretty_state[opts.state]))
+
+            # Covers are enabled.
+            if not_cfg.as_bool('covers'):
+                path   = os.path.dirname(os.path.join(music_path, opts.file))
+                covers = dict()
+                for filename in os.listdir(path):
+                    filename = filename.lower()
+                    # This weights by the order in the cover_names, but also so that
+                    # a shorter filename comes first, so we won't end up choosing
+                    # cover.small.jpg
+                    b1, i1 = str_fn_index(filename, str.startswith, cover_names)
+                    b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
+                    if b1 and b2:
+                        covers[(i1+i2)*100+len(filename)] = filename
+                        cover = sorted(covers.items())[0][1]
+
+                if len(covers) > 0:
+                    cover = os.path.join(path, cover)
+                    cover_small  = "%s.small%s" % os.path.splitext(cover)
+
+                    if not os.path.exists(cover_small):
+                        img = Image.open(cover)
+                        print cover_size
+                        img.thumbnail(cover_size, Image.ANTIALIAS)
+                        img.save(cover_small)
+                    icon = cover_small
+                else:
+                    icon = None
+
+            # Else, use a standard icon. Can be a filename or a tango-named icon.
+            elif not_cfg.icon:
+                icon = not_cfg.icon
+                if not os.path.exists(icon):
+                    icon = icon_theme.lookup_icon(icon, 96, 0)
+                    if icon:
+                        icon = icon.get_filename()
+
+            title = cgi.escape(title_format.substitute_default(opts))
+            body  = cgi.escape(body_format.substitute_default(opts))
+
+            # And launch the notification!
+            notification = pynotify.Notification(title, body, icon)
+            notification.show()
+    except KeyboardInterrupt:
+        pass
         
-        title = cgi.escape(title_format.substitute_default(opts))
-        body  = cgi.escape(body_format.substitute_default(opts))
-
-        # And launch the notification!
-        notification = pynotify.Notification(title, body, icon)
-        notification.show()
-
 if __name__ == "__main__":
     # Here we go.
     daemon()
