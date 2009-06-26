@@ -76,5 +76,4 @@ while True:
     else:
       raise e
 "
-  echo "Idling until some event happens."
 done
