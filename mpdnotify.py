@@ -4,6 +4,12 @@
 # Coded on the night of Thu, Jun 25, 2009 (10:15 PM to be exact!)
 # JP St. Pierre <jstpierre@mecheye.net>
 
+# Requires:
+#   notify
+#   mpd-python
+#   pygtk (for icon finding)
+#   configobj (for config reading)
+
 import os
 import cgi
 import pynotify
@@ -33,8 +39,9 @@ class NamedDict(dict, AttrAccess):
 class PercentTemplate(Template):
     pattern = "%(?P<named>[_a-z][_a-z0-9]*)%"
 
+# Monkey-patch ConfigObj so we can get
+# a named-dictionary setup going.
 Section.__bases__ += (AttrAccess,)
-#Section._interpolation_engine = AttrErrorFaker()
 
 config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
 
