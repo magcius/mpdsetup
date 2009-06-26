@@ -1,4 +1,22 @@
-zx
+#!/usr/bin/env python
+# mpdnotify.py
+# Newer, shinier mpdnotify using Python!
+# Coded on the night of Thu, Jun 25, 2009 (10:15 PM to be exact!)
+# JP St. Pierre <jstpierre@mecheye.net>
+
+# Requires:
+#   
+#   mpd >= 0.14
+#   
+#   pynotify
+#   
+#   mpd-python (latest development build)
+#     found at http://git.thejat.be/python-mpd.git/
+#   
+#   pygtk (for icon finding)
+#   
+#   configobj (for config reading)
+#     comes with bzr, you can also easy_install configobj
 
 import sys
 import os
@@ -13,6 +31,7 @@ from mpd import MPDClient
 
 pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 
+# Simple attribute access dict.
 class AttrAccess(object):
     def __getattr__(self, attr):
         try:
@@ -23,9 +42,13 @@ class AttrAccess(object):
 class NamedDict(dict, AttrAccess):
     pass
 
+# string.Template subclass for parsing %artist% templates like
+# those used by mpc and foobar.
 class PercentTemplate(Template):
     pattern = "%(?P<named>[_a-z][_a-z0-9]*)%"
 
+# Monkey-patch ConfigObj so we can get
+# a named-dictionary setup going.
 Section.__bases__ += (AttrAccess,)
 
 config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
@@ -46,6 +69,8 @@ def str_fn_index(s, fn, arg):
             return True, i
     return False, None
 
+# Hack for string.Template and the KeyError problem.
+# Substitute a default instead of throwing a KeyError.
 def template_substitute_default(self, args, default=''):
     while True:
         try:
