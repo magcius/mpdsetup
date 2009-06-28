@@ -95,68 +95,70 @@ def daemon():
         while True:
 
             # Idle for a reason.
-            reason, = client.idle()
+            # FIXED: can be more than one reason
+            reasons = client.idle()
+            
+            for reason in reasons:
+                # If we don't want to display a notification,
+                # don't do so.
+                if "notification_%s" % reason not in config:
+                    continue
 
-            # If we don't want to display a notification,
-            # don't do so.
-            if "notification_%s" % reason not in config:
-                continue
+                not_cfg = config["notification_%s" % reason]
 
-            not_cfg = config["notification_%s" % reason]
+                title_format = PercentTemplate(not_cfg.title_format)
+                body_format  = PercentTemplate(not_cfg.body_format)
 
-            title_format = PercentTemplate(not_cfg.title_format)
-            body_format  = PercentTemplate(not_cfg.body_format)
+                opts = NamedDict()
 
-            opts = NamedDict()
+                opts.update(client.status())
+                opts.update(client.stats())
+                opts.update(client.currentsong())
+                opts.update(dict(pretty_state=pretty_state[opts.state]))
 
-            opts.update(client.status())
-            opts.update(client.stats())
-            opts.update(client.currentsong())
-            opts.update(dict(pretty_state=pretty_state[opts.state]))
+                # Covers are enabled.
+                if not_cfg.as_bool('covers'):
+                    path   = os.path.dirname(os.path.join(music_path, opts.file))
+                    covers = dict()
+                    for filename in os.listdir(path):
+                        # This weights by the order in the cover_names, but also so that
+                        # a shorter filename comes first, so we won't end up choosing
+                        # cover.small.jpg
+                        b1, i1 = str_fn_index(filename, str.startswith, cover_names)
+                        b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
+                        if b1 and b2:
+                            covers[(i1+i2)*100+len(filename)] = filename
+                            cover = sorted(covers.items())[0][1]
 
-            # Covers are enabled.
-            if not_cfg.as_bool('covers'):
-                path   = os.path.dirname(os.path.join(music_path, opts.file))
-                covers = dict()
-                for filename in os.listdir(path):
-                    # This weights by the order in the cover_names, but also so that
-                    # a shorter filename comes first, so we won't end up choosing
-                    # cover.small.jpg
-                    b1, i1 = str_fn_index(filename, str.startswith, cover_names)
-                    b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
-                    if b1 and b2:
-                        covers[(i1+i2)*100+len(filename)] = filename
-                        cover = sorted(covers.items())[0][1]
+                    if len(covers) > 0:
+                        cover = os.path.join(path, cover)
+                        cover_small  = "%s.small%s" % os.path.splitext(cover)
 
-                if len(covers) > 0:
-                    cover = os.path.join(path, cover)
-                    cover_small  = "%s.small%s" % os.path.splitext(cover)
+                        if not os.path.exists(cover_small):
+                            try:
+                                img = Image.open(cover)
+                                img.thumbnail(cover_size, Image.ANTIALIAS)
+                                img.save(cover_small)
+                            except IOError:
+                                icon = None
+                        icon = cover_small
+                    else:
+                        icon = None
 
-                    if not os.path.exists(cover_small):
-                        try:
-                            img = Image.open(cover)
-                            img.thumbnail(cover_size, Image.ANTIALIAS)
-                            img.save(cover_small)
-                        except IOError:
-                            icon = None
-                    icon = cover_small
-                else:
-                    icon = None
+                # Else, use a standard icon. Can be a filename or a tango-named icon.
+                elif not_cfg.icon:
+                    icon = not_cfg.icon
+                    if not os.path.exists(icon):
+                        icon = icon_theme.lookup_icon(icon, 96, 0)
+                        if icon:
+                            icon = icon.get_filename()
 
-            # Else, use a standard icon. Can be a filename or a tango-named icon.
-            elif not_cfg.icon:
-                icon = not_cfg.icon
-                if not os.path.exists(icon):
-                    icon = icon_theme.lookup_icon(icon, 96, 0)
-                    if icon:
-                        icon = icon.get_filename()
+                title = title_format.substitute_default(opts)
+                body  = cgi.escape(body_format.substitute_default(opts))
 
-            title = title_format.substitute_default(opts)
-            body  = cgi.escape(body_format.substitute_default(opts))
-
-            # And launch the notification!
-            notification = pynotify.Notification(title, body, icon)
-            notification.show()
+                # And launch the notification!
+                notification = pynotify.Notification(title, body, icon)
+                notification.show()
     except KeyboardInterrupt:
         pass
         
