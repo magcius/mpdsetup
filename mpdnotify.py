@@ -151,7 +151,7 @@ def daemon():
                     if icon:
                         icon = icon.get_filename()
 
-            title = cgi.escape(title_format.substitute_default(opts))
+            title = title_format.substitute_default(opts)
             body  = cgi.escape(body_format.substitute_default(opts))
 
             # And launch the notification!
