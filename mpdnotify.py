@@ -133,9 +133,12 @@ def daemon():
                     cover_small  = "%s.small%s" % os.path.splitext(cover)
 
                     if not os.path.exists(cover_small):
-                        img = Image.open(cover)
-                        img.thumbnail(cover_size, Image.ANTIALIAS)
-                        img.save(cover_small)
+                        try:
+                            img = Image.open(cover)
+                            img.thumbnail(cover_size, Image.ANTIALIAS)
+                            img.save(cover_small)
+                        except IOError:
+                            icon = None
                     icon = cover_small
                 else:
                     icon = None
@@ -155,7 +158,7 @@ def daemon():
             notification = pynotify.Notification(title, body, icon)
             notification.show()
     except KeyboardInterrupt:
-        print "mpdnotify now exiting"
+        pass
         
 if __name__ == "__main__":
     # Here we go.
