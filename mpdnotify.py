@@ -96,7 +96,6 @@ def get_opts():
     opts = NamedDict()
     
     opts.update(client.status())
-    print opts
     opts.update(parse_time(opts))
     opts.update(client.stats())
     opts.update(client.currentsong())
@@ -181,7 +180,6 @@ def daemon():
             reasons = client.idle()
             
             for reason in reasons:
-                print reason
                 # Show the notitication
                 display_notification_config(reason)
                 
