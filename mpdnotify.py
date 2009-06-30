@@ -87,7 +87,7 @@ def template_substitute_default(self, args, default=''):
 Template.substitute_default = template_substitute_default
 
 def parse_time(opts):
-    if "time" in opts:g
+    if "time" in opts:
         elapsed, duration = (divmod(int(n), 60) for n in opts.time.split(":"))
         return dict(elapsed="%d:%02d" % elapsed, duration="%d:%02d" % duration)
     return {}
