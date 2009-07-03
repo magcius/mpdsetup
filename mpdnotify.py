@@ -110,7 +110,7 @@ def display_notification(title, body, enable_covers=True, icon=None):
     opts = get_opts()
     
     # Covers are enabled.
-    if enable_covers:
+    if enable_covers and "file" in opts:
         path   = os.path.dirname(os.path.join(music_path, opts.file))
         covers = dict()
         for filename in os.listdir(path):
