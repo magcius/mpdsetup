@@ -31,39 +31,26 @@ from mpd import MPDClient
 
 pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 
-# Simple attribute access dict.
-class AttrAccess(object):
-    def __getattr__(self, attr):
-        try:
-            return self.__getitem__(attr)
-        except KeyError, e:
-            raise AttributeError(*e.args)
-
-class NamedDict(dict, AttrAccess):
-    pass
-
 # string.Template subclass for parsing %artist% templates like
 # those used by mpc and foobar.
 class PercentTemplate(Template):
     pattern = "%(?P<named>[_a-z][_a-z0-9]*)%"
 
-# Monkey-patch ConfigObj so we can get
-# a named-dictionary setup going.
-Section.__bases__ += (AttrAccess,)
-
 config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
 
-music_path  = os.path.realpath(os.path.expanduser(config.covers.music_path))
-cover_names = config.covers.search_names
-cover_exts  = config.covers.search_exts
-cover_size  = tuple(int(n) for n in config.covers.size)
+covers_config = config['covers']
+
+music_path  = os.path.realpath(os.path.expanduser(covers_config['music_path']))
+cover_names = covers_config['search_names']
+cover_exts  = covers_config['search_exts']
+cover_size  = tuple(int(n) for n in covers_config['size'])
 
 icon_theme = gtk.icon_theme_get_default()
 
 pynotify.init("mpdnotify")
     
 client = MPDClient()
-client.connect(config.daemon.host, config.daemon.port)
+client.connect(config['daemon']['host'], config['daemon']['port'])
 
 def str_fn_index(s, fn, arg):
     if isinstance(arg, basestring):
@@ -80,26 +67,26 @@ def template_substitute_default(self, args, default=''):
     while True:
         try:
             return self.substitute(args)
-            break
         except KeyError, e:
             args[e.args[0]] = default
 
 Template.substitute_default = template_substitute_default
 
-def parse_time(opts):
-    if "time" in opts:
-        elapsed, duration = (divmod(int(n), 60) for n in opts.time.split(":"))
-        return dict(elapsed="%d:%02d" % elapsed, duration="%d:%02d" % duration)
-    return {}
-
 def get_opts():
-    opts = NamedDict()
+    
+    def parse_time(opts):
+        if "time" in opts:
+            elapsed, duration = (divmod(int(n), 60) for n in opts['time'].split(":"))
+            return dict(elapsed="%d:%02d" % elapsed, duration="%d:%02d" % duration)
+        return dict()
+    
+    opts = dict()
     
     opts.update(client.status())
     opts.update(parse_time(opts))
     opts.update(client.stats())
     opts.update(client.currentsong())
-    opts.update(dict(pretty_state=pretty_state[opts.state]))
+    opts.update(dict(pretty_state=pretty_state[opts['state']]))
     return opts
 
 def display_notification(title, body, enable_covers=True, icon=None):
@@ -111,7 +98,7 @@ def display_notification(title, body, enable_covers=True, icon=None):
     
     # Covers are enabled.
     if enable_covers and "file" in opts:
-        path   = os.path.dirname(os.path.join(music_path, opts.file))
+        path   = os.path.dirname(os.path.join(music_path, opts['file']))
         covers = dict()
         for filename in os.listdir(path):
             # This weights by the order in the cover_names, but also so that
@@ -139,12 +126,10 @@ def display_notification(title, body, enable_covers=True, icon=None):
             icon = None
 
     # Else, use a standard icon. Can be a filename or a tango-named icon.
-    elif icon:
-        icon = icon
-        if not os.path.exists(icon):
-            icon = icon_theme.lookup_icon(icon, 96, 0)
-            if icon:
-                icon = icon.get_filename()
+    elif icon and not os.path.exists(icon):
+        icon = icon_theme.lookup_icon(icon, 96, 0)
+        if icon:
+            icon = icon.get_filename()
 
     title = title_format.substitute_default(opts)
     body  = cgi.escape(body_format.substitute_default(opts))
@@ -161,10 +146,10 @@ def display_notification_config(config_name):
     
     # Get our configuration
     not_cfg = config["notification_%s" % config_name]
-    title  = not_cfg.title_format if "title_format" in not_cfg else ""
-    body   = not_cfg.body_format  if "body_format"  in not_cfg else ""
-    covers = not_cfg.covers       if "covers"       in not_cfg else False
-    icon   = not_cfg.icon         if "icon"         in not_cfg else ""
+    title  = not_cfg.get("title_format", "")
+    body   = not_cfg.get("body_format",  "")
+    covers = not_cfg.get("covers",    False)
+    icon   = not_cfg.get("icon",         "")
     
     display_notification(title, body, covers, icon)
 
@@ -226,16 +211,10 @@ if __name__ == "__main__":
         sys.exit(1)
         
     else:
-        command  = sys.argv[1].lower().lstrip("-")
-        c_len    = len(command)
-        commands = []
-        for i in COMMANDS:
-            if len(i) > c_len:
-                continue
-            if i[:c_len] == command:
-               commands.append(i) 
-        if len(commands) == 0:
-            print "no command by that name"
-        elif len(commands) == 1:
+        command = sys.argv[1].lower().lstrip("-")
+        if command in COMMANDS:
             args = sys.argv[2:] if len(sys.argv) > 2 else ()
             COMMANDS[commands[0]](*args)
+        else:
+            print "no command by that name"
+            print "use the 'help' command for available commands"
