@@ -72,7 +72,7 @@ def template_substitute_default(self, args, default=''):
 
 Template.substitute_default = template_substitute_default
 
-def get_opts():
+def get_opts(joiner):
     
     def parse_time(opts):
         if "time" in opts:
@@ -87,14 +87,20 @@ def get_opts():
     opts.update(client.stats())
     opts.update(client.currentsong())
     opts.update(dict(pretty_state=pretty_state[opts['state']]))
+    
+    # If we have multiple tags, join them.
+    for key, val in opts:
+        if isinstance(val, list):
+            opts[key] = joiner.join(val)
+    
     return opts
 
-def display_notification(title, body, enable_covers=True, icon=None):
+def display_notification(title, body, enable_covers=True, tags_joiner, icon=None):
     # And format our stuff.
     title_format = PercentTemplate(title)
     body_format  = PercentTemplate(body)
-
-    opts = get_opts()
+    
+    opts = get_opts(tags_joiner)
     
     # Covers are enabled.
     if enable_covers and "file" in opts:
@@ -146,12 +152,13 @@ def display_notification_config(config_name):
     
     # Get our configuration
     not_cfg = config["notification_%s" % config_name]
-    title  = not_cfg.get("title_format", "")
-    body   = not_cfg.get("body_format",  "")
-    covers = not_cfg.get("covers",    False)
-    icon   = not_cfg.get("icon",         "")
+    title       = not_cfg.get("title_format", "")
+    body        = not_cfg.get("body_format",  "")
+    tags_joiner = not_cfg.get("tags_joiner",  ", ")
+    covers      = not_cfg.get("covers",       False)
+    icon        = not_cfg.get("icon",         "")
     
-    display_notification(title, body, covers, icon)
+    display_notification(title, body, covers, tags_joiner, icon)
 
 def daemon():
     if tuple(int(m) for m in client.mpd_version.split('.')) < (0, 14, 0):
@@ -195,7 +202,7 @@ def display_notification_command(arg1="", body="", icon=""):
     if ("notification_%s" % arg1) in config:
         display_notification_config(arg1)
     else:
-        display_notification(arg1, body, icon == "cover", icon)
+        display_notification(arg1, body, icon == "cover", "", icon)
 
 COMMANDS = {
     "help":     help_command,
