@@ -89,13 +89,13 @@ def get_opts(joiner):
     opts.update(dict(pretty_state=pretty_state[opts['state']]))
     
     # If we have multiple tags, join them.
-    for key, val in opts:
+    for key, val in opts.iteritems():
         if isinstance(val, list):
             opts[key] = joiner.join(val)
     
     return opts
 
-def display_notification(title, body, enable_covers=True, tags_joiner, icon=None):
+def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon=None):
     # And format our stuff.
     title_format = PercentTemplate(title)
     body_format  = PercentTemplate(body)
@@ -221,7 +221,7 @@ if __name__ == "__main__":
         command = sys.argv[1].lower().lstrip("-")
         if command in COMMANDS:
             args = sys.argv[2:] if len(sys.argv) > 2 else ()
-            COMMANDS[commands[0]](*args)
+            COMMANDS[command](*args)
         else:
             print "no command by that name"
             print "use the 'help' command for available commands"
