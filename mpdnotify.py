@@ -28,6 +28,7 @@ from PIL import Image
 from configobj import ConfigObj, Section
 from string import Template
 from mpd import MPDClient, ConnectionError
+from socket import error as SocketError
 
 pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 
@@ -176,7 +177,7 @@ def daemon():
                     # Show the notitication
                     display_notification_config(reason)
                     
-            except ConnectionError:
+            except ConnectionError, SocketError:
                 pass
             
     except KeyboardInterrupt:
