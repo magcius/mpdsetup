@@ -27,7 +27,7 @@ import gtk
 from PIL import Image
 from configobj import ConfigObj, Section
 from string import Template
-from mpd import MPDClient
+from mpd import MPDClient, ConnectionError
 
 pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 
@@ -167,14 +167,18 @@ def daemon():
     try:
         while True:
 
-            # Idle for a reason.
-            # FIXED: can be more than one reason
-            reasons = client.idle()
+            try:
+                # Idle for a reason.
+                # FIXED: can be more than one reason
+                reasons = client.idle()
             
-            for reason in reasons:
-                # Show the notitication
-                display_notification_config(reason)
-                
+                for reason in reasons:
+                    # Show the notitication
+                    display_notification_config(reason)
+                    
+            except ConnectionError:
+                pass
+            
     except KeyboardInterrupt:
         pass
 
@@ -182,7 +186,7 @@ def help_command(command=""):
     if command == "":
         print "mpdnotify - JP St. Pierre <jstpierre@mecheye.net>"
         print "email me or post comments on the wiki, or msg me on #mpd"
-        print "for feature suggestions for this program"
+        print "for feature suggestions for this program. I go by the alias magcius."
         print ""
         print "commands:"
         print "  help    - display this message"
