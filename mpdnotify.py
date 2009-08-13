@@ -96,6 +96,19 @@ def get_opts(joiner):
     
     return opts
 
+def _resize_img(filename):
+    cover_small  = "%s.small%s" % os.path.splitext(cover)
+
+    if not os.path.exists(cover_small):
+        try:
+            img = Image.open(cover)
+            img.thumbnail(cover_size, Image.ANTIALIAS)
+            img.save(cover_small)
+        except IOError:
+            return None
+    
+    return cover_small
+
 def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon=None):
     # And format our stuff.
     title_format = PercentTemplate(title)
@@ -107,31 +120,25 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
     if enable_covers and "file" in opts:
         path   = os.path.dirname(os.path.join(music_path, opts['file']))
         covers = dict()
-        for filename in os.listdir(path):
-            # This weights by the order in the cover_names, but also so that
-            # a shorter filename comes first, so we won't end up choosing
-            # cover.small.jpg
-            b1, i1 = str_fn_index(filename, str.startswith, cover_names)
-            b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
-            if b1 and b2:
-                covers[(i1+i2)*100+len(filename)] = filename
-                cover = sorted(covers.items())[0][1]
 
-        if len(covers) > 0:
-            cover = os.path.join(path, cover)
-            cover_small  = "%s.small%s" % os.path.splitext(cover)
-
-            if not os.path.exists(cover_small):
-                try:
-                    img = Image.open(cover)
-                    img.thumbnail(cover_size, Image.ANTIALIAS)
-                    img.save(cover_small)
-                except IOError:
-                    icon = None
-            icon = cover_small
+        cover = os.path.join(os.path.expanduser("~/.covers"), os.path.join(opts['artist'], "%s.jpg" % opts['album']))
+        if os.path.exists(cover):
+            icon = _resize_img(cover)
         else:
-            icon = None
+            for filename in os.listdir(path):
+                # This weights by the order in the cover_names, but also so that
+                # a shorter filename comes first, so we won't end up choosing
+                # cover.small.jpg
+                b1, i1 = str_fn_index(filename, str.startswith, cover_names)
+                b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
+                if b1 and b2:
+                    covers[(i1+i2)*100+len(filename)] = filename
+                    cover = sorted(covers.items())[0][1]
 
+            if len(covers) > 0:
+                cover = os.path.join(path, cover)
+                icon = _resize_img(cover)
+            
     # Else, use a standard icon. Can be a filename or a tango-named icon.
     elif icon and not os.path.exists(icon):
         icon = icon_theme.lookup_icon(icon, 96, 0)
