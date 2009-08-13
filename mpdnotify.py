@@ -97,11 +97,11 @@ def get_opts(joiner):
     return opts
 
 def _resize_img(filename):
-    cover_small  = "%s.small%s" % os.path.splitext(cover)
+    cover_small  = "%s.small%s" % os.path.splitext(filename)
 
     if not os.path.exists(cover_small):
         try:
-            img = Image.open(cover)
+            img = Image.open(filename)
             img.thumbnail(cover_size, Image.ANTIALIAS)
             img.save(cover_small)
         except IOError:
