@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+g#!/usr/bin/env python
 # mpdnotify.py
 # Newer, shinier mpdnotify using Python!
 # Coded on the night of Thu, Jun 25, 2009 (10:15 PM to be exact!)
@@ -121,7 +121,10 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
         path   = os.path.dirname(os.path.join(music_path, opts['file']))
         covers = dict()
 
-        cover = os.path.join(os.path.expanduser("~/.covers"), os.path.join(opts['artist'], "%s.jpg" % opts['album']))
+        cover = os.path.join(os.path.expanduser("~/.covers"),
+                             os.path.join(opts['artist'].replace("/", " "),
+                                "%s.jpg" % opts['album'].replace("/", " ")))
+        
         if os.path.exists(cover):
             icon = _resize_img(cover)
         else:
