@@ -177,7 +177,7 @@ def daemon():
                     # Show the notitication
                     display_notification_config(reason)
                     
-            except ConnectionError, SocketError:
+            except (ConnectionError, SocketError), e:
                 pass
             
     except KeyboardInterrupt:
