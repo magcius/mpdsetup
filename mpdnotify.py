@@ -121,10 +121,13 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
         path   = os.path.dirname(os.path.join(music_path, opts['file']))
         covers = dict()
 
-        cover = os.path.join(os.path.expanduser("~/.covers"),
-                             os.path.join(opts['artist'].replace("/", " "),
-                                "%s.jpg" % opts['album'].replace("/", " ")))
-        
+        try:
+            cover = os.path.join(os.path.expanduser("~/.covers"),
+                                 os.path.join(opts['artist'].replace("/", " "),
+                                    "%s.jpg" % opts['album'].replace("/", " ")))
+        except KeyError:
+            cover = None
+            
         if os.path.exists(cover):
             icon = _resize_img(cover)
         else:
@@ -188,7 +191,9 @@ def daemon():
                     display_notification_config(reason)
                     
             except (ConnectionError, SocketError), e:
-                pass
+                global client
+                client = MPDClient()
+                client.connect(config['daemon']['host'], config['daemon']['port'])
             
     except KeyboardInterrupt:
         pass
