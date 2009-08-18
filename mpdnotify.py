@@ -128,7 +128,7 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
         except KeyError:
             cover = None
             
-        if os.path.exists(cover):
+        if cover and os.path.exists(cover):
             icon = _resize_img(cover)
         else:
             for filename in os.listdir(path):
