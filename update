@@ -3,10 +3,8 @@
 echo "Removing playlist \"all\"."
 (mpc rm all) > /dev/null
 echo "Updating DB..."
-mpc update > /dev/null
-while (mpc | grep "Updating" > /dev/null); do
-  sleep 2
-done
+(mpc update) > /dev/null
+mpc idle database
 echo "Adding new music..."
 mpc clear
 mpc add / > /dev/null

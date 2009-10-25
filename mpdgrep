@@ -1,36 +1,75 @@
-#!/bin/bash
-. ~/.bashrc
-# mpdgrep - grep our playlist.
-# JP St. Pierre
-# October 3, 2008
+#!/usr/bin/env python
+# mpdgrep.py
+# Newer, shinier mpdgrep using Python!
+# Coded on the night of Sat, Oct 24, 2009 (7:15 PM to be exact!)
+# JP St. Pierre <jstpierre@mecheye.net>
 
-# Create a temp file for our operations.
-TMP=$(mktemp)
+# Requires:
+#   
+#   mpd >= 0.16
+#   
+#   mpd-python (latest development build)
+#     found at http://git.thejat.be/python-mpd.git/
+#
+#   lepl >= 3.3
+#     run 'easy_install lepl' to get it
 
-# Grep the playlist with our argument to get a a list of all playlist IDs, with line numbers..
-mpc --format "%artist% - %album% - %title%" playlist | grep -i "$*" | grep -no '^[> ][0-9]\+' > $TMP
+import sys
 
-# Get the line number of the currently playing song.
-playing_line=$(cat $TMP | grep ">" | grep -o '^[0-9]\+')
+from query import search, load_database, client, get_songids
 
-# Get the total number of lines.
-total=$(wc -l $TMP | grep -o '^[0-9]\+ ')
+def updating_callback():
+    print "Updating database..."
 
-# If we're not playing a song in the search pattern, play the first one.
-if [ -z "$playing_line" ]; then
-  let "playing_line=0"
-fi
+def format_song(D):
+    return "%s - %s - %s" % (D.get('artist', ''), D.get('album', ''), D.get('title', ''))
 
-# If we're at the bottom of the list, play the first one again.
-if [ "$playing_line" -eq "$total" ]; then
-  let "playing_line=0"
-fi
+def main(terms):
+    
+    database, reloaded = load_database(updating_callback)
 
-# Do some arithmetic to get the number of lines below the currently playing song.
-let "wanted=$total-$playing_line"
+    if reloaded:
+        print "Updated database."
 
-# Play our song.
-mpc play $(cat $TMP | tail -$wanted | head -1 | grep -o '[0-9]\+')
+    # This is sys.argv[1:], so any arguments
+    # that have spaces in them were quoted by the user
+    # in shell. Put quotes around the search terms
+    # that have spaces in them to reserve this.
+    terms     = ' '.join(('"%s"' % term) if " " in term else term for term in terms)
+    results = [D for D in search(terms, database) if 'file' in D]
+    
+    # If we have no results, exit.
+    if not results:
+        print "No results were found."
+        return
 
-# Remove the temp file.
-rm $TMP
+    # Get the song ids and the current song id.
+    currentid = client.currentsong()['id']
+    songids   = get_songids(results)
+
+    # Print our results.
+    for id, info in zip(songids, results):
+        print "Found   : %s%s) %s" % (">" if id == currentid else " ", id, format_song(info))
+
+    # If the current song is in the
+    # search results, go to the next
+    # song. Make sure to mod len(songs).
+    # Otherwise, start at the first song.
+    index = 0
+    for i, id in enumerate(songids):
+        if id == currentid:
+            index = (i+1)%len(songids)
+            break
+
+    # Get the next song.
+    id   = songids[index]
+    info = results[index]
+
+    # Print what we'll be playing.
+    print
+    print "Playing :  %s) %s" % (id, format_song(info))
+
+    # And play it.
+    client.playid(id)
+
+main(sys.argv[1:])
