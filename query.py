@@ -5,6 +5,7 @@ except ImportError:
     import pickle
 
 import os.path
+import sys
 from lepl import *
 from string import ascii_letters
 from mpd import MPDClient
@@ -37,10 +38,25 @@ def load_database(updating_callback):
 
 # Helper functions
 
+def CaseInsensitiveLiteral(word):
+    L = []
+    for char in word:
+        if char.lower() != char.upper():
+            L.append('[%s%s]' % (char.lower(), char.upper()))
+        else:
+            L.append(char)
+    return Regexp(''.join(L))
+
+CIL = CaseInsensitiveLiteral
+
 def _coerce(E):
     if isinstance(E, (list, tuple)):
         return '; '.join(E)
     return E
+
+## 
+## TODO: make Node subclasses.
+## 
 
 def _and(t):
     if len(t) >= 2:
@@ -70,33 +86,35 @@ def _comparison(tuples):
         return 'compare', 'like', ('one', 'any'), tuples[0][1]
 
 # Grammar
-    
+
 spaces = Drop(Regexp(r'\s*'))
 
 with Separator(spaces):
-    query  = Delayed()
-    string = (String() | Word())  > 'string'
+    andExp  = Delayed()
+    string = (String() | Word()) > 'string'
     tag    = Drop("<") + Any(ascii_letters)[:] + Drop(">")
     tag   |= Drop("%") + Any(ascii_letters)[:] + Drop("%")
-    or_    = Drop(Or('||', '|', Regexp('[oO][rR]')))
-    and_   = Drop(Or('&&', '&', Regexp('[aA][nN][dD]')))
+    or_    = Drop(Or('||', '|', CIL('or')))
+    and_   = Drop(Or('&&', '&', CIL('and')))
     
     tagCO = tag  [:,or_ ] > _or
     tagCA = tagCO[:,and_] > _tagColl
     
-    comparator = Or('=i=', '==', Regexp('[lL][iI][kK][eE]')) > 'op'
+    comparator = Or('=i=', '==', CIL('like')) > 'op'
     comparison = Optional(tagCA & comparator) & string > _comparison
     
-    atom = (Drop('(') & query & Drop(')')) | \
-           (Drop('[') & query & Drop(']')) | \
-           (Drop('{') & query & Drop('}')) | \
+    atom = (Drop('(') & andExp & Drop(')')) | \
+           (Drop('[') & andExp & Drop(']')) | \
+           (Drop('{') & andExp & Drop('}')) | \
            comparison
     
-    orExp  = atom [:,or_]  > _or
-    query += orExp[:,and_] > _and
+    orExp   = atom [:,or_]  > _or
+    andExp += orExp[:,and_] > _and
+
+    query   = andExp & Eos()
 
 # Public interface.
-    
+
 def parse_query(string):
     for (ast,), leftover in query.match(string):
         if leftover == "":
@@ -122,12 +140,12 @@ def search_ast(ast, database):
         
         op, coll, value = node[1:]
 
-        if coll[1] == 'any':
+        if coll == ('one', 'any'):
             coll = ('or',) + tuple(D.keys())
         
         try:
             if coll[0] == 'one':
-                return _compare_single(_coerce(value))
+                return _compare_single(_coerce(D[coll[1]]))
             elif coll[0] == 'or':
                 return any(_compare_single(_coerce(D[t])) for t in coll[1:])
             elif coll[0] == 'and':
@@ -161,5 +179,34 @@ def get_songids(filenames, add=False):
             results.append(client.addid(file))
     return results
 
+
+# This is sys.argv[1:], so any arguments that have spaces in them
+# were quoted by the user in shell. Put quotes around the search
+# terms that have spaces that have spaces in them to reserve this.
+
+# This function is complicated because (%title% like "Q u o t e d")
+# is sent to Python as ['(%title%', 'like', 'Q u o t e d)'], which
+# is then converted into '(%title% like "Q u o t e d)"'
+def parse_bash_quotes(args):
+    L = []
+    for S in args:
+        if ' ' in S:
+            while S[0] in "([{":
+                L.append(S[0])
+                S = S[1:]
+            R = []
+            while S[-1] in ")]}":
+                R.append(S[-1])
+                S = S[:-1]
+            L.append('"%s"' % S)
+            L += R
+        else:
+            L.append(S)
+    return ' '.join(L)
+
 client = MPDClient()
 client.connect("localhost", 6600)
+
+if __name__ == "__main__":
+    t = parse_bash_quotes(sys.argv[1:])
+    print parse_query(t)

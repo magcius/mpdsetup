@@ -16,7 +16,7 @@
 
 import sys
 
-from query import search, load_database, client, get_songids
+from query import search, load_database, client, get_songids, parse_bash_quotes
 
 def updating_callback():
     print "Updating database..."
@@ -30,12 +30,8 @@ def main(terms):
 
     if reloaded:
         print "Updated database."
-
-    # This is sys.argv[1:], so any arguments
-    # that have spaces in them were quoted by the user
-    # in shell. Put quotes around the search terms
-    # that have spaces in them to reserve this.
-    terms     = ' '.join(('"%s"' % term) if " " in term else term for term in terms)
+    
+    terms   = parse_bash_quotes(sys.argv[1:])
     results = [D for D in search(terms, database) if 'file' in D]
     
     # If we have no results, exit.
