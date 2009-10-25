@@ -205,7 +205,7 @@ def parse_bash_quotes(args):
     return ' '.join(L)
 
 client = MPDClient()
-client.connect("localhost", 6600)
+client.connect(os.getenv("MPD_HOST") or "localhost", os.getenv("MPD_PORT") or 6600)
 
 if __name__ == "__main__":
     t = parse_bash_quotes(sys.argv[1:])
