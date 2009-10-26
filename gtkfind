@@ -63,7 +63,7 @@ class GUI(object):
         if event.keyval == RETURN_KEY:
             self.okay()
 
-    def treeview_click(self, event):
+    def treeview_click(self, widget, event):
         if event.type == gtk.gdk._2BUTTON_PRESS:
             self.okay()
     
