@@ -9,11 +9,17 @@ Requirements
 ------------
 
 * `MPD >= 0.16`_
+  
   - Older versions may work fine too
+  
 * `LEPL >= 3.3`_
+  
   - ``easy_install lepl`` should work
+  
 * `python-mpd`_
+  
   - You may need the development version from git. You may not.
+
 
 Query Grammar
 -------------
