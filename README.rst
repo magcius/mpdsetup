@@ -1,9 +1,7 @@
-
 query.py
 ========
 
 query.py is a query engine for MPD using LEPL and python-mpd.
-
 
 Requirements
 ------------
@@ -19,7 +17,6 @@ Requirements
 * `python-mpd`_
   
   - You may need the development version from git. You may not.
-
 
 Query Grammar
 -------------
@@ -49,6 +46,7 @@ The grammar:
   AndExpression: OrExpression (And OrExpression)*;
   
   Query: AndExpression EOS;
+
 
 Notes
 -----
