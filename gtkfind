@@ -1,0 +1,175 @@
+#!/usr/bin/env python
+# mpdgrep.py
+# Newer, shinier mpdgrep using Python!
+# Coded on the night of Sat, Oct 24, 2009 (7:15 PM to be exact!)
+# JP St. Pierre <jstpierre@mecheye.net>
+
+# Requires:
+#   
+#   mpd >= 0.16
+#   
+#   mpd-python (latest development build)
+#     found at http://git.thejat.be/python-mpd.git/
+#
+#   lepl >= 3.3
+#     run 'easy_install lepl' to get it
+
+import pygtk
+pygtk.require('2.0')
+import gtk
+
+import sys
+import os
+
+from query import search, load_database, client
+
+RETURN_KEY, _ = gtk.accelerator_parse("Return")
+ESCAPE_KEY, _ = gtk.accelerator_parse("Escape")
+
+class GUI(object):
+    def delete_event(self, widget, event, data=None):
+        return False
+
+    def destroy(self, widget=None, data=None):
+        for id in self.ids:
+            client.deleteid(id)
+        gtk.main_quit()
+
+    def do_search(self):
+        query = self.entry.get_text()
+        results = search(query, self.database)
+        self.liststore.clear()
+
+        if len(results) == 1:
+            client.playid(results[0]['id'])
+            self.destroy()
+        else:
+            self.ids = [r['id'] for r in results if r['added']]
+            
+            for D in results:
+                self.liststore.append([D['id'], D['artist'], D['album'], D['title']])
+
+            self.treeview.grab_focus()
+            self.treeview.set_cursor((0,))
+    
+    def search_press(self, event):
+        self.do_search()
+
+    def window_key(self, widget, event):
+        if event.keyval == ESCAPE_KEY:
+            self.destroy()
+
+    def treeview_key(self, widget, event):
+        if event.keyval == RETURN_KEY:
+            self.okay()
+    
+    def entry_key(self, widget, event):
+        if event.keyval == RETURN_KEY:
+            self.do_search()
+
+    def okay(self, event=None):
+        path, _ = self.treeview.get_cursor()
+        if path:
+            it = self.liststore.get_iter(path)
+            id = self.liststore.get_value(it, 0)
+            if id:
+                client.playid(id)
+                self.ids = []
+        self.destroy()
+    
+    def updated(self):
+        self.label.hide()
+        self.entry.set_sensitive(True)
+        self.search.set_sensitive(True)
+        self.treeview.set_sensitive(True)
+    
+    def updating(self):
+        self.label.show()
+        self.entry.set_sensitive(False)
+        self.search.set_sensitive(False)
+        self.treeview.set_sensitive(False)
+    
+    def __init__(self):
+
+        icon_theme = gtk.icon_theme_get_default()
+        icon_list  = [icon_theme.load_icon("audio-x-generic", size, 0) for size in (16, 32, 48, 64, 128)]
+        
+        self.ids = []
+        self.window = window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+        window.set_position(gtk.WIN_POS_CENTER)
+        window.set_default_size(600, 400)
+        window.set_border_width(10)
+        window.set_title("GTKFind")
+        window.set_icon_list(*icon_list)
+        window.connect("destroy", self.destroy)
+        window.connect("delete-event", self.delete_event)
+        window.connect("key-release-event", self.window_key)
+        
+        self.entry = entry = gtk.Entry()
+        entry.connect("key-release-event", self.entry_key)
+        entry.show()
+        entry.grab_focus()
+
+        self.label = label = gtk.Label("Updating database...")
+        
+        self.search = search = gtk.Button("Search")
+        search.connect("clicked", self.search_press)
+        search.show()
+        
+        self.hbox = hbox = gtk.HBox(spacing=10)
+        hbox.pack_start(entry, expand=True)
+        hbox.pack_start(search, expand=False)
+        hbox.show()
+
+        okay = gtk.Button("OK")
+        okay.connect("clicked", self.okay)
+        okay.show()
+        
+        cancel = gtk.Button("Cancel")
+        cancel.connect("clicked", self.destroy)
+        cancel.show()
+        
+        buttonbox = gtk.HButtonBox()
+        buttonbox.set_layout(gtk.BUTTONBOX_END)
+        buttonbox.pack_start(cancel, expand=False)
+        buttonbox.pack_start(okay, expand=False)
+        buttonbox.show()
+        
+        buttonalign = gtk.Alignment(xalign=1.0)
+        buttonalign.add(buttonbox)
+        buttonalign.show()
+        
+        cell = gtk.CellRendererText()
+        
+        self.liststore = liststore = gtk.ListStore(str, str, str, str)
+        self.treeview  = treeview  = gtk.TreeView(liststore)
+        treeview.append_column(gtk.TreeViewColumn("#", cell, text=0))
+        treeview.append_column(gtk.TreeViewColumn("Artist", cell, text=1))
+        treeview.append_column(gtk.TreeViewColumn("Album", cell, text=2))
+        treeview.append_column(gtk.TreeViewColumn("Title", cell, text=3 ))
+        treeview.connect("key-release-event", self.treeview_key)
+        treeview.show()
+        
+        scroll = gtk.ScrolledWindow()
+        scroll.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+        scroll.set_shadow_type(gtk.SHADOW_IN)
+        scroll.add(treeview)
+        scroll.show()
+        
+        self.vbox = vbox = gtk.VBox(spacing=10)
+        vbox.pack_start(label, expand=False)
+        vbox.pack_start(hbox, expand=False)
+        vbox.pack_start(scroll, expand=True)
+        vbox.pack_start(buttonalign, expand=False)
+        vbox.show()
+
+        window.add(vbox)
+        window.show()
+
+        self.database, reloaded = load_database(self.updating)
+        if reloaded:
+            self.updated()
+
+if __name__ == "__main__":
+    gui = GUI()
+    gtk.main()
