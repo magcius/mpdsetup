@@ -47,7 +47,7 @@ class GUI(object):
             self.ids = [r['id'] for r in results if r['added']]
             
             for D in results:
-                self.liststore.append([D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', '')g])
+                self.liststore.append([D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', '')])
 
             self.treeview.grab_focus()
             self.treeview.set_cursor((0,))
