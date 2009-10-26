@@ -52,7 +52,7 @@ class GUI(object):
             self.treeview.grab_focus()
             self.treeview.set_cursor((0,))
     
-    def search_press(self, event):
+    def search_click(self, event):
         self.do_search()
 
     def window_key(self, widget, event):
@@ -61,6 +61,10 @@ class GUI(object):
 
     def treeview_key(self, widget, event):
         if event.keyval == RETURN_KEY:
+            self.okay()
+
+    def treeview_click(self, event):
+        if event.type = gtk.gdk._2BUTTON_PRESS:
             self.okay()
     
     def entry_key(self, widget, event):
@@ -113,7 +117,7 @@ class GUI(object):
         self.label = label = gtk.Label("Updating database...")
         
         self.search = search = gtk.Button("Search")
-        search.connect("clicked", self.search_press)
+        search.connect("clicked", self.search_click)
         search.show()
         
         self.hbox = hbox = gtk.HBox(spacing=10)
@@ -148,6 +152,7 @@ class GUI(object):
         treeview.append_column(gtk.TreeViewColumn("Album", cell, text=2))
         treeview.append_column(gtk.TreeViewColumn("Title", cell, text=3 ))
         treeview.connect("key-release-event", self.treeview_key)
+        treeview.connect("button-press-event", self.treeview_click)
         treeview.show()
         
         scroll = gtk.ScrolledWindow()
