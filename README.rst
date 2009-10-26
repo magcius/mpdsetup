@@ -54,18 +54,18 @@ Notes
 -----
 
 * ``{}``, ``[]`` are included as well as parens as some shells
-    take any of those three as special characters.
+  take any of those three as special characters.
 * Same with ``and`` and ``or``.
 * '==' is a strict match.
 * '=i=' is a case-insensitive but full match.
 * 'like' checks for a substring of the full value in the database.
-    For instance, if the database contains "The Beatles" and you do
-    "like Beatles", it will match. If the database contains "Beatles"
-    and you do "like The Beatles", it will not match.
+  For instance, if the database contains "The Beatles" and you do
+  "like Beatles", it will match. If the database contains "Beatles"
+  and you do "like The Beatles", it will not match.
 * Tag collections allow you do things like:
-    ``%artist% and %album% like "Gabe Dixon"``, which means
-    that both the artist and the album must contain the substring
-    "Gabe Dixon". %tag% or %tag% matches for either.
+  ``%artist% and %album% like "Gabe Dixon"``, which means
+  that both the artist and the album must contain the substring
+  "Gabe Dixon". %tag% or %tag% matches for either.
 
 
 Query Examples
