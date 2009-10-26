@@ -54,7 +54,7 @@ def main(terms):
     
     # Print our results.
     for i, info in enumerate(results):
-        print "%s%s) "%s - %s - %s % (">" if i == index else " ", D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', ''))
+        print "%s%s) %s - %s - %s" % (">" if i == index else " ", D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', ''))
     
     # Get the next song and play it.
     client.playid(results[index]['id'])
