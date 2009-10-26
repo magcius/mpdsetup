@@ -36,6 +36,10 @@ class GUI(object):
         gtk.main_quit()
 
     def do_search(self):
+
+        if not self.database:
+            self.database = self.conn.recv()
+        
         query = self.entry.get_text()
         results = search(query, self.database)
         self.liststore.clear()
@@ -80,18 +84,22 @@ class GUI(object):
                 client.playid(id)
                 self.ids = []
         self.destroy()
+
+    def set_sensitive(self, value):
+        for child in self.entry, self.search, self.treeview, self.okay, self.cancel:
+            child.set_sensitive(value)
     
+    def enable(self):
+        self.set_sensitive(True)
+    
+    def disable(self):
+        self.set_sensitive(False)
+
+    def updating(self):
+        self.label.set_title("Updating database...")
+
     def updated(self):
         self.label.hide()
-        self.entry.set_sensitive(True)
-        self.search.set_sensitive(True)
-        self.treeview.set_sensitive(True)
-    
-    def updating(self):
-        self.label.show()
-        self.entry.set_sensitive(False)
-        self.search.set_sensitive(False)
-        self.treeview.set_sensitive(False)
     
     def __init__(self):
 
@@ -114,7 +122,8 @@ class GUI(object):
         entry.show()
         entry.grab_focus()
 
-        self.label = label = gtk.Label("Updating database...")
+        self.label = label = gtk.Label("Loading database...")
+        label.show()
         
         self.search = search = gtk.Button("Search")
         search.connect("clicked", self.search_click)
@@ -171,9 +180,15 @@ class GUI(object):
         window.add(vbox)
         window.show()
 
-        self.database, reloaded = load_database(self.updating)
+        self.conn, child = Pipe()
+        p = Process(target=load_database, args=(child,))
+        p.start()
+        started = self.conn.recv()
+        assert started
+
+        reloaded = self.conn.recv()
         if reloaded:
-            self.updated()
+            self.updating()
 
 if __name__ == "__main__":
     gui = GUI()

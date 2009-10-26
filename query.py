@@ -1,42 +1,92 @@
 
 # Support library for gtkfind and mpdgrep.
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
 import os.path
 import sys
+
+from axiom.attributes import text, reference()
+from axiom.errors import CannotOpenStore
+from axiom.item import Item
+from axiom.store import Store
+
 from lepl import *
 from string import ascii_letters
 from mpd import MPDClient
 
+from twisted.internet import reactor
+
 # MPD database functions.
 
-def load_database(updating_callback):
-
-    def do_load(path, timestamp):
-        updating_callback()
-        db = client.listallinfo()
-        pickle.dump((timestamp, db), open(path, "wb"))
-        return db, True
+class MusicItem(Item):
     
-    db_time = client.stats()['db_update']
-    path = os.path.expanduser("~/.pympddb")
+    filename = text()
+    
+    def make_tag(self, name, value):
+        return MusicTag(store=self.store, owner=self, name=tag, value=value)
+    
+    def make_tags(self, D):
+        L = []
+        for name, value in D.iteritems():
+            query = self.store.query(name)
+            if query.count() > 1:
+                query.deleteFromStore()
+            elif query.count() == 1:
+                tag = list(query)[0]
+                tag.value = value
+                L.append(tag)
+                continue
+            
+            L.append(self.make_tag(name, value))
+            
+
+class MusicTag(Item):
+    owner = reference()
+    name  = text()
+    value = text()
+
+class TimestampInfo(Item):
+    timestamp = text()
+
+def make_store(path):
+    return Store(path)
+
+def do_load(path, timestamp, store=None):
+    if store == None:
+        store = make_store()
+    pipe.send(True)
+    db = client.listallinfo()
+    update_store(store, db, timestamp)
+    pipe.send(store)
+
+def update_store(store, mpddb, timestamp):
+    for D in mpddb:
+        if "file" not in D:
+            continue
+        
+        item = MusicItem(store=store, filename=D.pop('file'))
+        item.make_tags(D)
+
+def load_database():
+    
+    timequery = store.query(TimestampInfo)
+    db_time = None
+    if timequery.count() > 1:
+        timequery.deleteFromStore()
+    elif timequery.count() == 1:
+        db_time = list(timequery)[0]
+    
+    mpd_time = client.stats()['db_update']
+    path = os.path.expanduser("~/.pympddb.2")
     
     if not os.path.exists(path):
-        db = do_load(path, db_time)
-
+        return do_load(path, mpd_time)
     try:
-        pickled_time, db = pickle.load(open(path, "rb"))
-    except (EOFError, PickleError):
-        return do_load(path, db_time)
-
-    if pickled_time != db_time:
-        return do_load(path, db_time)
+        store = make_store()
+    except (EOFError, CannotOpenStore):
+        return do_load(path, mpd_time)
     
-    return db, False
+    if db_time != mpd_time:
+        return 
 
 # Helper functions
 
