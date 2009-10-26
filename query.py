@@ -1,4 +1,6 @@
 
+# Support library for gtkfind and mpdgrep.
+
 try:
     import cPickle as pickle
 except ImportError:
@@ -122,7 +124,7 @@ def parse_query(string):
     # Fallback for old-style mpdgrep search.
     return ('compare', 'like', ('one', 'any'), string)
 
-def search_ast(ast, database):
+def search_ast(ast, database, addids=True):
     def _compare(node, D):
         def _compare_single(V):
             if op == '==':
@@ -147,38 +149,42 @@ def search_ast(ast, database):
             if coll[0] == 'one':
                 return _compare_single(_coerce(D[coll[1]]))
             elif coll[0] == 'or':
-                return any(_compare_single(_coerce(D[t])) for t in coll[1:])
+                return any(_compare_single(_coerce(D.get(t, ''))) for t in coll[1:])
             elif coll[0] == 'and':
-                return all(_compare_single(_coerce(D[t])) for t in coll[1:])
+                return all(_compare_single(_coerce(D.get(t, ''))) for t in coll[1:])
         except KeyError:
             pass
         return False
 
     def _check(node, D):
+        if 'file' not in D:
+            return False
         if node[0] == 'compare':
             return _compare(node, D)
         if node[0] == 'and':
             return all(_check(n, D) for n in node[1:])
         elif node[0] == 'or':
             return any(_check(n, D) for n in node[1:])
+        return False
     
-    return [D for D in database if _check(ast, D)]
+    L = [D for D in database if _check(ast, D)]
+    if addids:
+        add_songids(L)
+    return L
 
 def search(query, database):
     return search_ast(parse_query(query), database)
 
-def get_songids(filenames, add=False):
-    results = []
-    for file in filenames:
-        if isinstance(file, dict):
-            file = file['file']
-        songs = client.playlistfind('file', file)
-        if songs:
-            results += [info['id'] for info in songs]
-        elif add:
-            results.append(client.addid(file))
-    return results
-
+def add_songids(infos):
+    for info in infos:
+        if 'id' not in info:
+            songs = client.playlistfind('file', info['file'])
+            if songs:
+                info['added'] = False
+                info['id'] = songs[0]['id']
+            else:
+                info['added'] = True
+                info['id'] = client.addid(info['file'])
 
 # This is sys.argv[1:], so any arguments that have spaces in them
 # were quoted by the user in shell. Put quotes around the search

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# mpdgrep.py
 # Newer, shinier mpdgrep using Python!
 # Coded on the night of Sat, Oct 24, 2009 (7:15 PM to be exact!)
 # JP St. Pierre <jstpierre@mecheye.net>
@@ -15,57 +14,49 @@
 #     run 'easy_install lepl' to get it
 
 import sys
+import os
 
-from query import search, load_database, client, get_songids, parse_bash_quotes
+from query import search, load_database, client, parse_bash_quotes
 
 def updating_callback():
     print "Updating database..."
 
-def format_song(D):
-    return "%s - %s - %s" % (D.get('artist', ''), D.get('album', ''), D.get('title', ''))
-
 def main(terms):
-    
     database, reloaded = load_database(updating_callback)
-
+    
     if reloaded:
         print "Updated database."
     
-    terms   = parse_bash_quotes(sys.argv[1:])
-    results = [D for D in search(terms, database) if 'file' in D]
+    terms = parse_bash_quotes(sys.argv[1:])
+    
+    # Check our results.
+    if not terms:
+        print "No query was entered."
+    
+    results = search(terms, database)
     
     # If we have no results, exit.
     if not results:
         print "No results were found."
         return
-
+    
     # Get the song ids and the current song id.
     currentid = client.currentsong()['id']
-    songids   = get_songids(results)
-
-    # Print our results.
-    for id, info in zip(songids, results):
-        print "Found   : %s%s) %s" % (">" if id == currentid else " ", id, format_song(info))
-
+    
     # If the current song is in the
     # search results, go to the next
     # song. Make sure to mod len(songs).
     # Otherwise, start at the first song.
     index = 0
-    for i, id in enumerate(songids):
-        if id == currentid:
+    for i, D in enumerate(results):
+        if D['id'] == currentid:
             index = (i+1)%len(songids)
-            break
-
-    # Get the next song.
-    id   = songids[index]
-    info = results[index]
-
-    # Print what we'll be playing.
-    print
-    print "Playing :  %s) %s" % (id, format_song(info))
-
-    # And play it.
-    client.playid(id)
+    
+    # Print our results.
+    for i, info in enumerate(results):
+        print "%s%s) "%s - %s - %s % (">" if i == index else " ", D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', ''))
+    
+    # Get the next song and play it.
+    client.playid(results[index]['id'])
 
 main(sys.argv[1:])
