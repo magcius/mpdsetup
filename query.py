@@ -30,7 +30,7 @@ class MusicItem(Item):
     def make_tags(self, D):
         for name, value in D.iteritems():
             
-            name = unicode(name)
+            name = unicode(name, 'utf8')
             
             if not isinstance(value, list):
                 value = [value]
@@ -39,7 +39,7 @@ class MusicItem(Item):
             query.deleteFromStore()
             
             for V in value:
-                self.make_tag(name, unicode(V))
+                self.make_tag(name, unicode(V, 'utf8'))
             
 
 class MusicTag(Item):
@@ -60,17 +60,16 @@ def do_load(path, timestamp, updating, updated, store=None):
         store = make_store(path)
     
     db = client.listallinfo()
-    defer = coiterate(update_store(store, db, timestamp))
+    defer = store.transact(coiterate, update_store(store, db, timestamp))
     defer.addCallback(updated, store)
     return None
 
 def update_store(store, mpddb, timestamp):
-    print "YES!"
     for D in mpddb:
         if "file" not in D:
             continue
 
-        filename = D.pop('file').decode("utf8")
+        filename = D.pop('file').decode('utf8')
         print filename
         query = store.query(MusicItem, MusicItem.filename == filename)
         item = None
