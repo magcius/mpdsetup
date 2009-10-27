@@ -4,16 +4,19 @@
 import os.path
 import sys
 
-from axiom.attributes import text, reference()
+import warnings
+warnings.simplefilter('ignore', DeprecationWarning)
+
+import axiom
+from axiom.attributes import text, reference
 from axiom.errors import CannotOpenStore
 from axiom.item import Item
 from axiom.store import Store
 
 from lepl import *
-from string import ascii_letters
 from mpd import MPDClient
 
-from twisted.internet import reactor
+from twisted.internet.task import coiterate
 
 # MPD database functions.
 
@@ -22,21 +25,21 @@ class MusicItem(Item):
     filename = text()
     
     def make_tag(self, name, value):
-        return MusicTag(store=self.store, owner=self, name=tag, value=value)
+        return MusicTag(store=self.store, owner=self, name=name, value=value)
     
     def make_tags(self, D):
-        L = []
         for name, value in D.iteritems():
-            query = self.store.query(name)
-            if query.count() > 1:
-                query.deleteFromStore()
-            elif query.count() == 1:
-                tag = list(query)[0]
-                tag.value = value
-                L.append(tag)
-                continue
             
-            L.append(self.make_tag(name, value))
+            name = unicode(name)
+            
+            if not isinstance(value, list):
+                value = [value]
+            
+            query = self.store.query(MusicTag, MusicTag.name == name)
+            query.deleteFromStore()
+            
+            for V in value:
+                self.make_tag(name, unicode(V))
             
 
 class MusicTag(Item):
@@ -50,43 +53,65 @@ class TimestampInfo(Item):
 def make_store(path):
     return Store(path)
 
-def do_load(path, timestamp, store=None):
+def do_load(path, timestamp, updating, updated, store=None):
+    
+    updating()
     if store == None:
-        store = make_store()
-    pipe.send(True)
+        store = make_store(path)
+    
     db = client.listallinfo()
-    update_store(store, db, timestamp)
-    pipe.send(store)
+    defer = coiterate(update_store(store, db, timestamp))
+    defer.addCallback(updated, store)
+    return None
 
 def update_store(store, mpddb, timestamp):
+    print "YES!"
     for D in mpddb:
         if "file" not in D:
             continue
-        
-        item = MusicItem(store=store, filename=D.pop('file'))
-        item.make_tags(D)
 
-def load_database():
+        filename = D.pop('file').decode("utf8")
+        print filename
+        query = store.query(MusicItem, MusicItem.filename == filename)
+        item = None
+        
+        if query.count() > 1:
+            query.deleteFromStore()
+        elif query.count() == 1:
+            item = list(query)[0]
+            continue
+
+        if item is None:
+            item = MusicItem(store=store, filename=filename)
+            
+        item.make_tags(D)
+        yield True
     
-    timequery = store.query(TimestampInfo)
-    db_time = None
-    if timequery.count() > 1:
-        timequery.deleteFromStore()
-    elif timequery.count() == 1:
-        db_time = list(timequery)[0]
-    
+    time = TimestampInfo(store=store, timestamp=timestamp)
+    raise StopIteration
+
+def load_database(updating, updated):
     mpd_time = client.stats()['db_update']
     path = os.path.expanduser("~/.pympddb.2")
     
     if not os.path.exists(path):
-        return do_load(path, mpd_time)
+        return do_load(path, mpd_time, updating, updated)
     try:
-        store = make_store()
+        store = make_store(path)
     except (EOFError, CannotOpenStore):
-        return do_load(path, mpd_time)
+        return do_load(path, mpd_time, updating, updated)
+
+    timequery = store.query(TimestampInfo)
+    db_time = None
+    if timequery.count():
+        db_time = list(timequery)[0]
     
     if db_time != mpd_time:
-        return 
+        if timequery.count():
+            timequery.deleteFromStore()
+        return do_load(None, mpd_time, updating, updated, store)
+    
+    return store
 
 # Helper functions
 
@@ -106,62 +131,101 @@ def _coerce(E):
         return '; '.join(E)
     return E
 
-## 
-## TODO: make Node subclasses.
-## 
+# class CaseInsensitive(object):
+#     implements(IColumn)
 
-def _and(t):
-    if len(t) >= 2:
-        return ('and',) + tuple(t)
-    elif t:
-        return t[0]
-    return ()
+#     def __init__(self, column):
+#         self.column = column
+    
+#     def getColumnName(self, store):
+#         return "lower(%s)" % (self.column.getColumnName(store),)
 
-def _or(t):
-    if len(t) >= 2:
-        return ('or',) + tuple(t)
-    elif t:
-        return t[0]
-    return ()
+#     def __getattr__(self, name):
+#         return getattr(self.column, name)
 
-def _tagColl(t):
-    t = _and(t)
-    if isinstance(t, tuple):
-        return 'tag', t
-    return ('tag', ('one', t))
+class Comparison(Node):
+    def __init__(self, kwargs):
+        kwargs = dict(kwargs)
+        self.coll  = kwargs.get('coll', Tag('any'))
+        self.op    = kwargs.get('op', 'like')
+        self.value = kwargs.get('value')
 
-def _comparison(tuples):
-    if tuples[0][0] == 'tag':
-        tagColl, op, value = zip(*tuples)[1]
-        return 'compare', op, tagColl, value
-    elif tuples[0][0] == 'string':
-        return 'compare', 'like', ('one', 'any'), tuples[0][1]
+    def make_op(self):
+        if self.op == '==':
+            return MusicTag.value == self.value
+        elif self.op == '=i=':
+            return MusicTag.value.like(self.value)
+        else: # like
+            return MusicTag.value.like('%' + self.value + '%')
+
+    def make_query(self):
+        return coll.make_query(self)
+    
+class OptimizingOp(Node):
+    def __init__(self, *args):
+        self.args = args
+    
+    def make_query(self, *a):
+        if len(self.args) == 1:
+            return self.args[0].make_query(*a)
+        else:
+            return self.OP(*(v.make_query(*a) for v in self.args))
+    
+class AndNode(OptimizingOp): op = axiom.attributes.AND
+class OrNode (OptimizingOp): op = axiom.attributes.OR
+
+class Tag(Node):
+    def __init__(self, name):
+        self.name = name
+
+    def make_query(self, comparison):
+        if self.name == 'any':
+            return MusicTag.value == value
+        return axiom.attributes.AND(MusicTag.name  == self.name,
+                                    comparison.make_op())
+
+# def _tagColl(t):
+#     t = _and(t)
+#     if isinstance(t, tuple):
+#         return 'tag', t
+#     return ('tag', ('one', t))
+
+# def _comparison(tuples):
+#     if tuples[0][0] == 'tag':
+#         tagColl, op, value = zip(*tuples)[1]
+#         return 'compare', op, tagColl, value
+#     elif tuples[0][0] == 'string':
+#         return 'compare', 'like', ('one', 'any'), tuples[0][1]
 
 # Grammar
 
 spaces = Drop(Regexp(r'\s*'))
 
 with Separator(spaces):
-    andExp  = Delayed()
-    string = (String() | Word()) > 'string'
-    tag    = Drop("<") + Any(ascii_letters)[:] + Drop(">")
-    tag   |= Drop("%") + Any(ascii_letters)[:] + Drop("%")
+    andExp = Delayed()
+    value  = (String() | Word()) > 'value'
+
     or_    = Drop(Or('||', '|', CIL('or')))
     and_   = Drop(Or('&&', '&', CIL('and')))
     
-    tagCO = tag  [:,or_ ] > _or
-    tagCA = tagCO[:,and_] > _tagColl
+    tag    = Drop("<") + Word() + Drop(">")
+    tag   |= Drop("%") + Word() + Drop("%")
+    tag   >= Tag
+    
+    tagCO  = tag  [:,or_ ] > OrNode
+    tagCA  = tagCO[:,and_] > AndNode
     
     comparator = Or('=i=', '==', CIL('like')) > 'op'
-    comparison = Optional(tagCA & comparator) & string > _comparison
+    
+    comparison = (Optional(tagCA & comparator) & value) > Comparison
     
     atom = (Drop('(') & andExp & Drop(')')) | \
            (Drop('[') & andExp & Drop(']')) | \
            (Drop('{') & andExp & Drop('}')) | \
            comparison
     
-    orExp   = atom [:,or_]  > _or
-    andExp += orExp[:,and_] > _and
+    orExp   = atom [:,or_ ] > OrNode
+    andExp += orExp[:,and_] > AndNode
 
     query   = andExp & Eos()
 
@@ -172,52 +236,10 @@ def parse_query(string):
         if leftover == "":
             return ast
     # Fallback for old-style mpdgrep search.
-    return ('compare', 'like', ('one', 'any'), string)
+    return Comparison(('value', string))
 
-def search_ast(ast, database, addids=True):
-    def _compare(node, D):
-        def _compare_single(V):
-            if op == '==':
-                if value == V:
-                    return True
-            elif op == '=i=':
-                if value.lower() == V.lower():
-                    return True
-            else: # like
-                if value.lower() in V.lower():
-                    return True
-            return False
-        
-        assert node[0] == 'compare'
-        
-        op, coll, value = node[1:]
-
-        if coll == ('one', 'any'):
-            coll = ('or',) + tuple(D.keys())
-        
-        try:
-            if coll[0] == 'one':
-                return _compare_single(_coerce(D[coll[1]]))
-            elif coll[0] == 'or':
-                return any(_compare_single(_coerce(D.get(t, ''))) for t in coll[1:])
-            elif coll[0] == 'and':
-                return all(_compare_single(_coerce(D.get(t, ''))) for t in coll[1:])
-        except KeyError:
-            pass
-        return False
-
-    def _check(node, D):
-        if 'file' not in D:
-            return False
-        if node[0] == 'compare':
-            return _compare(node, D)
-        if node[0] == 'and':
-            return all(_check(n, D) for n in node[1:])
-        elif node[0] == 'or':
-            return any(_check(n, D) for n in node[1:])
-        return False
-    
-    L = [D for D in database if _check(ast, D)]
+def search_ast(ast, store, addids=True):
+    L = list(set(tag.owner for tag in store.query(MusicTag, ast.make_query())))
     if addids:
         add_songids(L)
     return L

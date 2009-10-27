@@ -17,23 +17,31 @@ import sys
 import os
 
 from query import search, load_database, client, parse_bash_quotes
+from twisted.internet import reactor
 
-def updating_callback():
+def updating():
     print "Updating database..."
 
-def main(terms):
-    database, reloaded = load_database(updating_callback)
+def updated(store):
+    print "Updated database."
+    after_update(store)
+
+def main():
+    store = load_database(updating, updated)
     
-    if reloaded:
-        print "Updated database."
-    
-    terms = parse_bash_quotes(sys.argv[1:])
-    
+    if store:
+        after_update(store)
+
+    reactor.run()
+
+def after_update(store):
+    terms = parse_bash_quotes(terms)
+
     # Check our results.
     if not terms:
         print "No query was entered."
     
-    results = search(terms, database)
+    results = search(terms, store)
     
     # If we have no results, exit.
     if not results:
@@ -59,4 +67,4 @@ def main(terms):
     # Get the next song and play it.
     client.playid(results[index]['id'])
 
-main(sys.argv[1:])
+main()
