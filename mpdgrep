@@ -19,15 +19,28 @@ import os
 from query import search, load_database, client, parse_bash_quotes
 from twisted.internet import reactor
 
-def updating():
-    print "Updating database..."
+_max_length = 0
 
-def updated(store):
-    print "Updated database."
-    after_update(store)
+def fancy_write(string):
+    global _max_length
+    if len(string) > _max_length:
+        _max_length = len(string)
+    sys.stdout.write('\r%s%s\r' % (string, " "*(_max_length - len(string))))
+
+def callback(filename=None, percent=0, loaded_mpd=False, done=False, store=None):
+    if done:
+        fancy_write("Updated database.")
+        after_update(store)
+    if loaded_mpd:
+        fancy_write("Updating database... 0%")
+    if filename:
+        fancy_write("Updating database... %d%%: adding '%s'" % (percent, filename,))
+    else:
+        fancy_write("Loading database.")
+    sys.stdout.flush()
 
 def main():
-    store = load_database(updating, updated)
+    store = load_database(callback)
     
     if store:
         after_update(store)

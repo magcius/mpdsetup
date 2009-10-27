@@ -16,6 +16,8 @@ from axiom.store import Store
 from lepl import *
 from mpd import MPDClient
 
+from itertools import izip
+
 from twisted.internet.task import coiterate
 
 # MPD database functions.
@@ -23,20 +25,22 @@ from twisted.internet.task import coiterate
 class MusicItem(Item):
     
     filename = text()
+    id = None
     
     def make_tag(self, name, value):
         return MusicTag(store=self.store, owner=self, name=name, value=value)
     
     def make_tags(self, D):
+        
+        query = self.store.query(MusicTag, MusicTag.owner == self)
+        query.deleteFromStore()
+        
         for name, value in D.iteritems():
             
             name = unicode(name, 'utf8')
             
             if not isinstance(value, list):
                 value = [value]
-            
-            query = self.store.query(MusicTag, MusicTag.name == name)
-            query.deleteFromStore()
             
             for V in value:
                 self.make_tag(name, unicode(V, 'utf8'))
@@ -53,24 +57,25 @@ class TimestampInfo(Item):
 def make_store(path):
     return Store(path)
 
-def do_load(path, timestamp, updating, updated, store=None):
-    
-    updating()
+def do_load(path, timestamp, callback, store=None):
     if store == None:
         store = make_store(path)
-    
-    db = client.listallinfo()
-    defer = store.transact(coiterate, update_store(store, db, timestamp))
-    defer.addCallback(updated, store)
+
+    callback()
+    mpddb = client.listallinfo()
+    callback(loaded_mpd=True)
+    defer = coiterate(update_store(store, mpddb, timestamp, callback))
+    defer.addCallback(callback, store=store, done=True)
     return None
 
-def update_store(store, mpddb, timestamp):
-    for D in mpddb:
+def _update_store_internal(store, it, total):
+    count = 0
+    while count < 2000:
+        D = it.next()
         if "file" not in D:
             continue
 
         filename = D.pop('file').decode('utf8')
-        print filename
         query = store.query(MusicItem, MusicItem.filename == filename)
         item = None
         
@@ -79,26 +84,37 @@ def update_store(store, mpddb, timestamp):
         elif query.count() == 1:
             item = list(query)[0]
             continue
+        
+        item = MusicItem(store=store, filename=filename)
+        count += len(D) + 1
+    return filename, count
 
-        if item is None:
-            item = MusicItem(store=store, filename=filename)
-            
-        item.make_tags(D)
-        yield True
+def update_store(store, mpddb, timestamp, callback):
+    try:
+        total = sum(1 + len(D) for D in mpddb)
+        count = 0
+        it = iter(mpddb)
+        while True:
+            filename, n = store.transact(_update_store_internal, store, it, total)
+            count += n
+            callback(filename=filename, percent=(min(count, total) / float(total) * 100))
+            yield True
+    except StopIteration:
+        pass
     
     time = TimestampInfo(store=store, timestamp=timestamp)
     raise StopIteration
 
-def load_database(updating, updated):
+def load_database(callback):
     mpd_time = client.stats()['db_update']
     path = os.path.expanduser("~/.pympddb.2")
     
     if not os.path.exists(path):
-        return do_load(path, mpd_time, updating, updated)
+        return do_load(path, mpd_time, callback)
     try:
         store = make_store(path)
     except (EOFError, CannotOpenStore):
-        return do_load(path, mpd_time, updating, updated)
+        return do_load(path, mpd_time, callback)
 
     timequery = store.query(TimestampInfo)
     db_time = None
@@ -108,7 +124,7 @@ def load_database(updating, updated):
     if db_time != mpd_time:
         if timequery.count():
             timequery.deleteFromStore()
-        return do_load(None, mpd_time, updating, updated, store)
+        return do_load(None, mpd_time, callback)
     
     return store
 
@@ -248,14 +264,14 @@ def search(query, database):
 
 def add_songids(infos):
     for info in infos:
-        if 'id' not in info:
+        if info.id == None:
             songs = client.playlistfind('file', info['file'])
             if songs:
-                info['added'] = False
-                info['id'] = songs[0]['id']
+                info.added = False
+                info.id    = songs[0]['id']
             else:
-                info['added'] = True
-                info['id'] = client.addid(info['file'])
+                info.added = True
+                info.added = client.addid(info['file'])
 
 # This is sys.argv[1:], so any arguments that have spaces in them
 # were quoted by the user in shell. Put quotes around the search
