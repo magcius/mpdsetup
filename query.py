@@ -19,31 +19,28 @@ from mpd import MPDClient
 from itertools import izip
 
 from twisted.internet.task import coiterate
+from twisted.internet import reactor
 
 # MPD database functions.
 
 class MusicItem(Item):
     
     filename = text()
-    id = None
     
     def make_tag(self, name, value):
         return MusicTag(store=self.store, owner=self, name=name, value=value)
     
     def make_tags(self, D):
-        
         query = self.store.query(MusicTag, MusicTag.owner == self)
         query.deleteFromStore()
         
         for name, value in D.iteritems():
-            
-            name = unicode(name, 'utf8')
-            
+            name = name.decode('utf8')
             if not isinstance(value, list):
                 value = [value]
             
             for V in value:
-                self.make_tag(name, unicode(V, 'utf8'))
+                self.make_tag(name, V.decode('utf8'))
             
 
 class MusicTag(Item):
@@ -58,19 +55,26 @@ def make_store(path):
     return Store(path)
 
 def do_load(path, timestamp, callback, store=None):
+    def done(e):
+        time = TimestampInfo(store=store, timestamp=timestamp.decode('utf8'))
+        return callback(store=store, done=True)
+        
+    def stop(*a, **b):
+        reactor.stop()
+    
     if store == None:
         store = make_store(path)
 
     callback()
     mpddb = client.listallinfo()
     callback(loaded_mpd=True)
-    defer = coiterate(update_store(store, mpddb, timestamp, callback))
-    defer.addCallback(callback, store=store, done=True)
+    defer = coiterate(update_store(store, mpddb, callback))
+    defer.addCallback(done)
     return None
 
 def _update_store_internal(store, it, total):
     count = 0
-    while count < 2000:
+    while count < 2500:
         D = it.next()
         if "file" not in D:
             continue
@@ -79,31 +83,25 @@ def _update_store_internal(store, it, total):
         query = store.query(MusicItem, MusicItem.filename == filename)
         item = None
         
-        if query.count() > 1:
-            query.deleteFromStore()
-        elif query.count() == 1:
+        if query.count() == 1:
             item = list(query)[0]
-            continue
+        else:
+            query.deleteFromStore()
+            item = MusicItem(store=store, filename=filename)
         
-        item = MusicItem(store=store, filename=filename)
-        count += len(D) + 1
+        item.make_tags(D)
+        count += len(D) + 1 # account for filename
     return filename, count
 
-def update_store(store, mpddb, timestamp, callback):
-    try:
-        total = sum(1 + len(D) for D in mpddb)
-        count = 0
-        it = iter(mpddb)
-        while True:
-            filename, n = store.transact(_update_store_internal, store, it, total)
-            count += n
-            callback(filename=filename, percent=(min(count, total) / float(total) * 100))
-            yield True
-    except StopIteration:
-        pass
-    
-    time = TimestampInfo(store=store, timestamp=timestamp)
-    raise StopIteration
+def update_store(store, mpddb, callback):
+    total = sum(len(D) for D in mpddb)
+    count = 0
+    it = iter(mpddb)
+    while True:
+        filename, n = store.transact(_update_store_internal, store, it, total)
+        count += n
+        callback(filename=filename, percent=(min(count, total) / float(total) * 100))
+        yield True
 
 def load_database(callback):
     mpd_time = client.stats()['db_update']
@@ -117,14 +115,20 @@ def load_database(callback):
         return do_load(path, mpd_time, callback)
 
     timequery = store.query(TimestampInfo)
-    db_time = None
-    if timequery.count():
-        db_time = list(timequery)[0]
+    for f in store.query(MusicItem):
+        print f.filename
     
-    if db_time != mpd_time:
-        if timequery.count():
-            timequery.deleteFromStore()
-        return do_load(None, mpd_time, callback)
+    #db_time = None
+    #if timequery.count():
+    #    db_time = list(timequery)[0].timestamp.encode("utf8")
+
+    #print db_time
+    #print mpd_time
+    
+    #if db_time != mpd_time:
+    #    if timequery.count():
+    #        timequery.deleteFromStore()
+    #    return do_load(None, mpd_time, callback)
     
     return store
 
@@ -185,9 +189,9 @@ class OptimizingOp(Node):
             return self.args[0].make_query(*a)
         else:
             return self.OP(*(v.make_query(*a) for v in self.args))
-    
-class AndNode(OptimizingOp): op = axiom.attributes.AND
-class OrNode (OptimizingOp): op = axiom.attributes.OR
+
+class AndNode(OptimizingOp): OP = axiom.attributes.AND
+class OrNode (OptimizingOp): OP = axiom.attributes.OR
 
 class Tag(Node):
     def __init__(self, name):
@@ -279,7 +283,7 @@ def add_songids(infos):
 
 # This function is complicated because (%title% like "Q u o t e d")
 # is sent to Python as ['(%title%', 'like', 'Q u o t e d)'], which
-# is then converted into '(%title% like "Q u o t e d)"'
+# is then converted into '(%title% like "Q u o t e d")'
 def parse_bash_quotes(args):
     L = []
     for S in args:

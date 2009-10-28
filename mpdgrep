@@ -48,7 +48,7 @@ def main():
     reactor.run()
 
 def after_update(store):
-    terms = parse_bash_quotes(terms)
+    terms = parse_bash_quotes(sys.argv[1:])
 
     # Check our results.
     if not terms:

@@ -36,9 +36,6 @@ class GUI(object):
         gtk.main_quit()
 
     def do_search(self):
-
-        if not self.database:
-            self.database = self.conn.recv()
         
         query = self.entry.get_text()
         results = search(query, self.database)
