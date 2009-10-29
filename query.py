@@ -25,29 +25,37 @@ from twisted.internet import reactor
 
 class MusicItem(Item):
     
-    filename = text()
-    
-    def make_tag(self, name, value):
-        return MusicTag(store=self.store, owner=self, name=name, value=value)
+    filename      = text()
+    artist        = text()
+    album         = text()
+    title         = text()
+    disc          = text()
+    track         = text()
+    last_modified = text()
+    performer     = text()
+    date          = text()
+    albumartist   = text()
+    genre         = text()
     
     def make_tags(self, D):
-        query = self.store.query(MusicTag, MusicTag.owner == self)
-        query.deleteFromStore()
+        #query = self.store.query(MusicTag, MusicTag.owner == self)
+        #query.deleteFromStore()
         
         for name, value in D.iteritems():
-            name = name.decode('utf8')
-            if not isinstance(value, list):
-                value = [value]
-            
-            for V in value:
-                self.make_tag(name, V.decode('utf8'))
-            
+            if isinstance(value, list):
+                value = '; '.join(value)
 
-class MusicTag(Item):
-    owner = reference()
-    name  = text()
-    value = text()
+            if name in TAG_NAME_MAP:
+                name = TAG_NAME_MAP[name]
 
+            try:
+                setattr(self, name.decode('utf8'), value.decode('utf8'))
+            except AttributeError:
+                pass
+
+TAG_NAME_MAP = {'file': 'filename', 'last-modified': 'last_modified'}
+TAGS = dict((k, v) for k, v in MusicItem.__dict__.iteritems() if not k.startswith("__"))
+            
 class TimestampInfo(Item):
     timestamp = text()
 
@@ -72,9 +80,10 @@ def do_load(path, timestamp, callback, store=None):
     defer.addCallback(done)
     return None
 
+TRANSACTION_INTERVAL = 1000
+
 def _update_store_internal(store, it, total):
-    count = 0
-    while count < 2500:
+    for i in xrange(TRANSACTION_INTERVAL):
         D = it.next()
         if "file" not in D:
             continue
@@ -90,16 +99,15 @@ def _update_store_internal(store, it, total):
             item = MusicItem(store=store, filename=filename)
         
         item.make_tags(D)
-        count += len(D) + 1 # account for filename
-    return filename, count
+    return filename
 
 def update_store(store, mpddb, callback):
-    total = sum(len(D) for D in mpddb)
+    total = len(mpddb)
     count = 0
     it = iter(mpddb)
     while True:
-        filename, n = store.transact(_update_store_internal, store, it, total)
-        count += n
+        filename = store.transact(_update_store_internal, store, it, total)
+        count += TRANSACTION_INTERVAL
         callback(filename=filename, percent=(min(count, total) / float(total) * 100))
         yield True
 
@@ -118,17 +126,17 @@ def load_database(callback):
     for f in store.query(MusicItem):
         print f.filename
     
-    #db_time = None
-    #if timequery.count():
-    #    db_time = list(timequery)[0].timestamp.encode("utf8")
+    db_time = None
+    if timequery.count():
+        db_time = list(timequery)[0].timestamp.encode("utf8")
 
-    #print db_time
-    #print mpd_time
+    print db_time
+    print mpd_time
     
-    #if db_time != mpd_time:
-    #    if timequery.count():
-    #        timequery.deleteFromStore()
-    #    return do_load(None, mpd_time, callback)
+    if db_time != mpd_time:
+        if timequery.count():
+            timequery.deleteFromStore()
+        return do_load(None, mpd_time, callback)
     
     return store
 
@@ -169,13 +177,15 @@ class Comparison(Node):
         self.op    = kwargs.get('op', 'like')
         self.value = kwargs.get('value')
 
-    def make_op(self):
+    def make_op(self, column):
+        if column is None:
+            return None
         if self.op == '==':
-            return MusicTag.value == self.value
+            return column == self.value
         elif self.op == '=i=':
-            return MusicTag.value.like(self.value)
+            return column.like(self.value)
         else: # like
-            return MusicTag.value.like('%' + self.value + '%')
+            return column.like('%' + self.value + '%')
 
     def make_query(self):
         return coll.make_query(self)
@@ -188,7 +198,9 @@ class OptimizingOp(Node):
         if len(self.args) == 1:
             return self.args[0].make_query(*a)
         else:
-            return self.OP(*(v.make_query(*a) for v in self.args))
+            args = [v.make_query(*a) for v in self.args]
+            args = [v for v in args if v is not None]
+            return self.OP(*rgs)
 
 class AndNode(OptimizingOp): OP = axiom.attributes.AND
 class OrNode (OptimizingOp): OP = axiom.attributes.OR
@@ -199,9 +211,8 @@ class Tag(Node):
 
     def make_query(self, comparison):
         if self.name == 'any':
-            return MusicTag.value == value
-        return axiom.attributes.AND(MusicTag.name  == self.name,
-                                    comparison.make_op())
+            return axiom.attributes.OR(*(comparison.make_op(C) for C in TAGS.itervalues()))
+        return comparison.make_op(TAGS.get(TAG_NAME_MAP.get(self.name, self.name), None))
 
 # def _tagColl(t):
 #     t = _and(t)
@@ -258,7 +269,8 @@ def parse_query(string):
     return Comparison(('value', string))
 
 def search_ast(ast, store, addids=True):
-    L = list(set(tag.owner for tag in store.query(MusicTag, ast.make_query())))
+    L = []
+    #L = list(set(tag.owner for tag in store.query(MusicTag, ast.make_query())))
     if addids:
         add_songids(L)
     return L
