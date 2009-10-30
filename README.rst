@@ -98,6 +98,6 @@ engine straight from bash. Something like:
 works perfectly on my computer.
 
 .. _Python >= 2.6: http://www.python.org/
-.. _MPD >= 0.16:   http://www.musicpd.org/
+.. _MPD >= 0.15:   http://www.musicpd.org/
 .. _LEPL >= 3.3:   http://www.acooke.org/lepl/
 .. _python-mpd:    http://git.thejat.be/python-mpd.git
