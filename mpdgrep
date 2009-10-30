@@ -16,45 +16,16 @@
 import sys
 import os
 
-from query import search, load_database, client, parse_bash_quotes
-from twisted.internet import reactor
-
-_max_length = 0
-
-def fancy_write(string):
-    global _max_length
-    if len(string) > _max_length:
-        _max_length = len(string)
-    sys.stdout.write('\r%s%s\r' % (string, " "*(_max_length - len(string))))
-
-def callback(filename=None, percent=0, loaded_mpd=False, done=False, store=None):
-    if done:
-        fancy_write("Updated database.")
-        after_update(store)
-    if loaded_mpd:
-        fancy_write("Updating database... 0%")
-    if filename:
-        fancy_write("Updating database... %d%%: adding '%s'" % (percent, filename,))
-    else:
-        fancy_write("Loading database.")
-    sys.stdout.flush()
+from query import search, client, parse_bash_quotes, play
 
 def main():
-    store = load_database(callback)
-    
-    if store:
-        after_update(store)
-
-    reactor.run()
-
-def after_update(store):
     terms = parse_bash_quotes(sys.argv[1:])
 
     # Check our results.
     if not terms:
         print "No query was entered."
     
-    results = search(terms, store)
+    results = search(terms)
     
     # If we have no results, exit.
     if not results:
@@ -62,7 +33,7 @@ def after_update(store):
         return
     
     # Get the song ids and the current song id.
-    currentid = client.currentsong()['id']
+    currentid = client.currentsong()['file']
     
     # If the current song is in the
     # search results, go to the next
@@ -70,14 +41,14 @@ def after_update(store):
     # Otherwise, start at the first song.
     index = 0
     for i, D in enumerate(results):
-        if D['id'] == currentid:
-            index = (i+1)%len(songids)
+        if D['file'] == currentid:
+            index = (i+1)%len(results)
     
     # Print our results.
-    for i, info in enumerate(results):
-        print "%s%s) %s - %s - %s" % (">" if i == index else " ", D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', ''))
+    for i, D in enumerate(results):
+        print "%s%s - %s - %s" % (">" if i == index else " ", D.get('artist', ''), D.get('album', ''), D.get('title', ''))
     
     # Get the next song and play it.
-    client.playid(results[index]['id'])
+    play(results[index]['file'])
 
 main()

@@ -21,7 +21,7 @@ import gtk
 import sys
 import os
 
-from query import search, load_database, client
+from query import search, client, play
 
 RETURN_KEY, _ = gtk.accelerator_parse("Return")
 ESCAPE_KEY, _ = gtk.accelerator_parse("Escape")
@@ -38,17 +38,15 @@ class GUI(object):
     def do_search(self):
         
         query = self.entry.get_text()
-        results = search(query, self.database)
+        results = search(query)
         self.liststore.clear()
 
         if len(results) == 1:
-            client.playid(results[0]['id'])
+            play(results[0]['file'])
             self.destroy()
         else:
-            self.ids = [r['id'] for r in results if r['added']]
-            
             for D in results:
-                self.liststore.append([D['id'], D.get('artist', ''), D.get('album', ''), D.get('title', '')])
+                self.liststore.append([D['file'], D.get('artist', ''), D.get('album', ''), D.get('title', '')])
 
             self.treeview.grab_focus()
             self.treeview.set_cursor((0,))
@@ -76,10 +74,9 @@ class GUI(object):
         path, _ = self.treeview.get_cursor()
         if path:
             it = self.liststore.get_iter(path)
-            id = self.liststore.get_value(it, 0)
-            if id:
-                client.playid(id)
-                self.ids = []
+            filename = self.liststore.get_value(it, 0)
+            if filename:
+                play(filename)
         self.destroy()
 
     def set_sensitive(self, value):
@@ -91,12 +88,6 @@ class GUI(object):
     
     def disable(self):
         self.set_sensitive(False)
-
-    def updating(self):
-        self.label.set_title("Updating database...")
-
-    def updated(self):
-        self.label.hide()
     
     def __init__(self):
 
@@ -118,9 +109,6 @@ class GUI(object):
         entry.connect("key-release-event", self.entry_key)
         entry.show()
         entry.grab_focus()
-
-        self.label = label = gtk.Label("Loading database...")
-        label.show()
         
         self.search = search = gtk.Button("Search")
         search.connect("clicked", self.search_click)
@@ -153,7 +141,6 @@ class GUI(object):
         
         self.liststore = liststore = gtk.ListStore(str, str, str, str)
         self.treeview  = treeview  = gtk.TreeView(liststore)
-        treeview.append_column(gtk.TreeViewColumn("#", cell, text=0))
         treeview.append_column(gtk.TreeViewColumn("Artist", cell, text=1))
         treeview.append_column(gtk.TreeViewColumn("Album", cell, text=2))
         treeview.append_column(gtk.TreeViewColumn("Title", cell, text=3 ))
@@ -168,7 +155,6 @@ class GUI(object):
         scroll.show()
         
         self.vbox = vbox = gtk.VBox(spacing=10)
-        vbox.pack_start(label, expand=False)
         vbox.pack_start(hbox, expand=False)
         vbox.pack_start(scroll, expand=True)
         vbox.pack_start(buttonalign, expand=False)
@@ -176,17 +162,7 @@ class GUI(object):
 
         window.add(vbox)
         window.show()
-
-        self.conn, child = Pipe()
-        p = Process(target=load_database, args=(child,))
-        p.start()
-        started = self.conn.recv()
-        assert started
-
-        reloaded = self.conn.recv()
-        if reloaded:
-            self.updating()
-
+        
 if __name__ == "__main__":
     gui = GUI()
     gtk.main()
