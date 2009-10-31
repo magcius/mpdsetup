@@ -140,10 +140,10 @@ def parse_query(string):
     if ast is None:
         return Comparison(('tag', 'any'), ('op', 'like'), ('value', string))
     
-    folded = ast.unfold_outer()
+    folded = ast[0].unfold_outer()
     if folded is not None:
         return folded
-    return ast
+    return ast[0]
     # for (ast,), leftover in query.match(string):
     #     if leftover == '':
     #        folded = ast.unfold_outer()
