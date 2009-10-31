@@ -33,7 +33,7 @@ def main():
         return
     
     # Get the song ids and the current song id.
-    currentid = client.currentsong()['file']
+    currentfile = client.currentsong().get("file", None)
     
     # If the current song is in the
     # search results, go to the next
@@ -41,7 +41,7 @@ def main():
     # Otherwise, start at the first song.
     index = 0
     for i, D in enumerate(results):
-        if D['file'] == currentid:
+        if D['file'] == currentfile:
             index = (i+1)%len(results)
     
     # Print our results.
