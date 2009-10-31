@@ -136,7 +136,8 @@ with Separator(spaces):
 
 def parse_query(string):
     ast = query.parse(string)
-    
+
+    # Fallback for old-style mpdgrep search.
     if ast is None:
         return Comparison(('tag', 'any'), ('op', 'like'), ('value', string))
     
@@ -144,13 +145,6 @@ def parse_query(string):
     if folded is not None:
         return folded
     return ast[0]
-    # for (ast,), leftover in query.match(string):
-    #     if leftover == '':
-    #        folded = ast.unfold_outer()
-    #        return folded
-    
-    # Fallback for old-style mpdgrep search.
-    # 
 
 def search_ast(ast, client_=None):
     client_ = client_ or client
