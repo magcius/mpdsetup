@@ -141,9 +141,17 @@ class GUI(object):
         
         self.liststore = liststore = gtk.ListStore(str, str, str, str)
         self.treeview  = treeview  = gtk.TreeView(liststore)
-        treeview.append_column(gtk.TreeViewColumn("Artist", cell, text=1, resizable=True))
-        treeview.append_column(gtk.TreeViewColumn("Album",  cell, text=2, resizable=True))
-        treeview.append_column(gtk.TreeViewColumn("Title",  cell, text=3, resizable=True))
+        
+        col1 = gtk.TreeViewColumn("Artist", cell, text=1)
+        col1.set_resizable(True)
+        col2 = gtk.TreeViewColumn("Album",  cell, text=2)
+        col2.set_resizable(True)
+        col3 = gtk.TreeViewColumn("Title", cell, text=3)
+        col3.set_resizable(True)
+        
+        treeview.append_column(col1)
+        treeview.append_column(col2)
+        treeview.append_column(col3)
         treeview.connect("key-release-event", self.treeview_key)
         treeview.connect("button-press-event", self.treeview_click)
         treeview.show()
