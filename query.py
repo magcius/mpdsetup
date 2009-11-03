@@ -42,20 +42,10 @@ def _unfold(method_name):
 # ================================================================================
 
 class Comparison(Node):
-    def correct(self):
-        if not hasattr(self, 'op'):
-            self.op = ['like']
-        if not hasattr(self, 'coll'):
-            self.tag_ = ['any']
-    
     def unfold_outer(self):
-        self.correct()
-        if hasattr(self, 'tag_'):
-            return
         return self.coll[0].unfold_collection(self)
 
     def search(self, client, state=None, order=None):
-        self.correct()
         op, tag, value = self.op[0], self.tag_[0], self.value[0]
         
         if state is None:
@@ -118,7 +108,7 @@ with Separator(spaces):
     
     comparator = Or('==', CIL('like')) > 'op'
     
-    comparison = (Optional(tagC & comparator) & value) > Comparison
+    comparison = (tagC & comparator & value) > Comparison
     
     atom = (Drop('(') & andExp & Drop(')')) | \
            (Drop('[') & andExp & Drop(']')) | \
@@ -139,7 +129,7 @@ def parse_query(string):
 
     # Fallback for old-style mpdgrep search.
     if ast is None:
-        return Comparison(('tag', 'any'), ('op', 'like'), ('value', string))
+        return Comparison(('tag_', 'any'), ('op', 'like'), ('value', string))
     
     folded = ast[0].unfold_outer()
     if folded is not None:
