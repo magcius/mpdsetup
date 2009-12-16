@@ -4,7 +4,7 @@
 import os.path
 import sys
 
-from lepl import Node, Word, Regexp, String, Drop, Optional, Delayed, Eos, Separator, Or
+from lepl import Node, Word, Regexp, String, Drop, Delayed, Eos, Separator, Or
 from mpd import MPDClient
 
 # ================================================================================

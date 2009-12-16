@@ -21,7 +21,7 @@ import sys
 import os
 import cgi
 import pynotify
-import gtk
+import urllib2
 
 from PIL import Image
 from configobj import ConfigObj, Section
@@ -36,21 +36,6 @@ pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 class PercentTemplate(Template):
     pattern = "%(?P<named>[_a-z][_a-z0-9]*)%"
 
-config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
-
-covers_config = config['covers']
-
-music_path  = os.path.realpath(os.path.expanduser(covers_config['music_path']))
-cover_names = covers_config['search_names']
-cover_exts  = covers_config['search_exts']
-cover_size  = tuple(int(n) for n in covers_config['size'])
-
-icon_theme = gtk.icon_theme_get_default()
-
-pynotify.init("mpdnotify")
-
-client = MPDClient()
-client.connect(config['daemon']['host'], config['daemon']['port'])
 
 def str_fn_index(s, fn, arg):
     if isinstance(arg, basestring):
@@ -60,6 +45,127 @@ def str_fn_index(s, fn, arg):
         if fn(s.lower(), m.lower()):
             return True, i
     return False, None
+
+class CoverBackend(object):
+    def __init__(self, config):
+        pass
+    
+    def get_icon(self, opts):
+        pass
+
+    def resize_image(self, filename):
+        cover_small  = "%s.small%s" % os.path.splitext(filename)
+
+        if not os.path.exists(cover_small):
+            try:
+                img = Image.open(filename)
+                img.thumbnail(cover_size, Image.ANTIALIAS)
+                img.save(cover_small)
+            except IOError:
+                return None
+    
+        return cover_small
+
+class AmazonBackend(CoverBackend):
+    URL = "http://images.amazon.com/images/P/%s.01._SCLZZZZZZZ_.jpg"
+    def __init__(self, config):
+        from pyaws import ecs
+        ecs.setLicenseKey(config["api_key"])
+        ecs.setSecretAccessKey(config["secret_key"])
+        self.ecs = ecs
+        
+    def get_icon(self, opts):
+        try:
+            result = self.ecs.ItemSearch(opts.get('album', ''), Artist=opts.get('artist', ''), SearchIndex="Music")
+            result = result[0]
+            filename = os.path.expanduser("~/.covers/%s/%s.jpg" % (track.artist.name, release.title))
+            handle = open(filename, "w")
+            art = urllib2.urlopen(amazon_url % result.ASIN)
+            handle.write(art.read())
+            handle.close()
+            return filename
+        except KeyError:
+            return None
+
+class MusicDirBackend(CoverBackend):
+    def __init__(self, config):
+        self.cover_names = make_list(config['search_names'])
+        self.cover_exts  = make_list(config['search_exts'])
+        self.music_path  = os.path.realpath(os.path.expanduser(config['music_path']))
+        
+    def get_icon(self, opts):
+        path   = os.path.dirname(os.path.join(self.music_path, opts['file']))
+        covers = dict()
+
+        for filename in os.listdir(path):
+            # This weights by the order in the cover_names, but also so that
+            # a shorter filename comes first, so we won't end up choosing
+            # cover.small.jpg
+            b1, i1 = str_fn_index(filename, str.startswith, self.cover_names)
+            b2, i2 = str_fn_index(filename, str.endswith, self.cover_exts)
+            if b1 and b2:
+                covers[(i1+i2)*100+len(filename)] = filename
+
+        if covers:
+            cover = sorted(covers.items())[0][1]
+            return os.path.join(path, cover)
+
+        return None
+
+class CoversDirBackend(CoverBackend):
+    def get_icon(self, opts):
+        if 'artist' not in opts or 'album' not in opts:
+            return None
+        
+        cover = os.path.join(os.path.expanduser("~/.covers"),
+                             opts['artist'].replace("/", " "),
+                             "%s.jpg" % opts['album'].replace("/", " "))
+        
+        if os.path.exists(cover):
+            return cover
+        
+        return None
+
+class GTKIconThemeBackend(CoverBackend):
+    def __init__(self, config):
+        import gtk
+        self.icon_theme = gtk.icon_theme_get_default()
+
+    def get_icon(self, opts):
+        if opts['icon']:
+            icon = self.icon_theme.lookup_icon(opts['icon'], 96, 0)
+            if icon:
+                return icon.get_filename()
+        return None
+
+BACKENDS = dict()
+BACKENDS["amazon"]   = AmazonBackend
+BACKENDS["musicdir"] = MusicDirBackend
+BACKENDS[".covers"]  = CoversDirBackend
+BACKENDS["icons"]    = GTKIconThemeBackend
+
+def make_list(v):
+    try:
+        v[0]
+        return v
+    except TypeError:
+        return [v]
+
+config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
+
+covers_config = config['covers']
+
+cover_size      = tuple(int(n) for n in covers_config['size'])
+
+backends = []
+
+for backend in make_list(covers_config['cover_backends']):
+    backends.append(BACKENDS[backend](config.get('covers:backend:'+backend, {})))
+
+pynotify.init("mpdnotify")
+
+client = MPDClient()
+client.connect(config['daemon']['host'], config['daemon']['port'])
 
 # Hack for string.Template and the KeyError problem.
 # Substitute a default instead of throwing a KeyError.
@@ -95,66 +201,30 @@ def get_opts(joiner):
     
     return opts
 
-def _resize_img(filename):
-    cover_small  = "%s.small%s" % os.path.splitext(filename)
-
-    if not os.path.exists(cover_small):
-        try:
-            img = Image.open(filename)
-            img.thumbnail(cover_size, Image.ANTIALIAS)
-            img.save(cover_small)
-        except IOError:
-            return None
-    
-    return cover_small
-
 def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon=None):
     # And format our stuff.
     title_format = PercentTemplate(title)
     body_format  = PercentTemplate(body)
     
     opts = get_opts(tags_joiner)
+    opts['icon'] = icon
     
     # Covers are enabled.
     if enable_covers and "file" in opts:
-        path   = os.path.dirname(os.path.join(music_path, opts['file']))
-        covers = dict()
 
-        try:
-            cover = os.path.join(os.path.expanduser("~/.covers"),
-                                 os.path.join(opts['artist'].replace("/", " "),
-                                    "%s.jpg" % opts['album'].replace("/", " ")))
-        except KeyError:
-            cover = None
+        for backend in backends:
+            cover = backend.get_icon(opts)
+            if cover:
+                break
             
         if cover and os.path.exists(cover):
-            icon = _resize_img(cover)
-        else:
-            for filename in os.listdir(path):
-                # This weights by the order in the cover_names, but also so that
-                # a shorter filename comes first, so we won't end up choosing
-                # cover.small.jpg
-                b1, i1 = str_fn_index(filename, str.startswith, cover_names)
-                b2, i2 = str_fn_index(filename, str.endswith, cover_exts)
-                if b1 and b2:
-                    covers[(i1+i2)*100+len(filename)] = filename
-
-            if len(covers) > 0:
-                cover = sorted(covers.items())[0][1]
-                cover = os.path.join(path, cover)
-                icon = _resize_img(cover)
-            
-    # Else, use a standard icon. Can be a filename or a tango-named icon.
-    elif icon and not os.path.exists(icon):
-        icon = icon_theme.lookup_icon(icon, 96, 0)
-        if icon:
-            icon = icon.get_filename()
-
+            cover = backend.resize_image(cover)
+    
     title = title_format.substitute_default(opts)
     body  = cgi.escape(body_format.substitute_default(opts))
 
     # And launch the notification!
-    notification = pynotify.Notification(title, body, icon)
+    notification = pynotify.Notification(title, body, cover)
     notification.show()
 
 def display_notification_config(config_name):
@@ -181,9 +251,12 @@ def daemon():
     try:
         while True:
 
+            
+            client = MPDClient()
+            client.connect(config['daemon']['host'], config['daemon']['port'])
+            
             try:
                 # Idle for a reason.
-                # FIXED: can be more than one reason
                 reasons = client.idle()
             
                 for reason in reasons:
@@ -191,8 +264,7 @@ def daemon():
                     display_notification_config(reason)
                     
             except (ConnectionError, SocketError), e:
-                client = MPDClient()
-                client.connect(config['daemon']['host'], config['daemon']['port'])
+                continue
             
     except KeyboardInterrupt:
         pass
