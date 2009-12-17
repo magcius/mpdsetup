@@ -51,11 +51,11 @@ class CoverBackend(object):
         pass
     
     def get_icon(self, opts):
-        pass
+        return None, None
 
     def resize_image(self, filename):
         cover_small  = "%s.small%s" % os.path.splitext(filename)
-
+        
         if not os.path.exists(cover_small):
             try:
                 img = Image.open(filename)
@@ -73,20 +73,27 @@ class AmazonBackend(CoverBackend):
         ecs.setLicenseKey(config["api_key"])
         ecs.setSecretAccessKey(config["secret_key"])
         self.ecs = ecs
-        
+
+    
     def get_icon(self, opts):
         try:
-            result = self.ecs.ItemSearch(opts.get('album', ''), Artist=opts.get('artist', ''), SearchIndex="Music")
+            result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
             result = result[0]
-            filename = os.path.expanduser("~/.covers/%s/%s.jpg" % (track.artist.name, release.title))
-            handle = open(filename, "w")
-            art = urllib2.urlopen(amazon_url % result.ASIN)
-            handle.write(art.read())
-            handle.close()
-            return filename
-        except KeyError:
-            return None
+            filename = os.path.join(os.path.expanduser("~/.covers"),
+                                    opts['artist'].replace("/", " "),
+                                    "%s.jpg" % opts['album'].replace("/", " "))
+            return filename, result
+        
+        except (KeyError, self.ecs.SignatureDoesNotMatch), e:
+            return None, None
 
+    def handle_async(self, filename, result):
+        os.mkdir(os.path.split(filename)[0])
+        handle = open(filename, "w")
+        art = urllib2.urlopen(self.URL % result.ASIN)
+        handle.write(art.read())
+        handle.close()
+        
 class MusicDirBackend(CoverBackend):
     def __init__(self, config):
         self.cover_names = make_list(config['search_names'])
@@ -108,9 +115,9 @@ class MusicDirBackend(CoverBackend):
 
         if covers:
             cover = sorted(covers.items())[0][1]
-            return os.path.join(path, cover)
+            return os.path.join(path, cover), None
 
-        return None
+        return None, None
 
 class CoversDirBackend(CoverBackend):
     def get_icon(self, opts):
@@ -122,9 +129,9 @@ class CoversDirBackend(CoverBackend):
                              "%s.jpg" % opts['album'].replace("/", " "))
         
         if os.path.exists(cover):
-            return cover
+            return cover, None
         
-        return None
+        return None, None
 
 class GTKIconThemeBackend(CoverBackend):
     def __init__(self, config):
@@ -135,8 +142,8 @@ class GTKIconThemeBackend(CoverBackend):
         if opts['icon']:
             icon = self.icon_theme.lookup_icon(opts['icon'], 96, 0)
             if icon:
-                return icon.get_filename()
-        return None
+                return icon.get_filename(), None
+        return None, None
 
 BACKENDS = dict()
 BACKENDS["amazon"]   = AmazonBackend
@@ -211,9 +218,11 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
     
     # Covers are enabled.
     if enable_covers and "file" in opts:
-
+        
+        loading = False
         for backend in backends:
-            cover = backend.get_icon(opts)
+            cover, async = backend.get_icon(opts)
+                
             if cover:
                 break
             
@@ -223,8 +232,19 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
     title = title_format.substitute_default(opts)
     body  = cgi.escape(body_format.substitute_default(opts))
 
+    final_image = cover
+    if async:
+        final_image = None
+    
     # And launch the notification!
-    notification = pynotify.Notification(title, body, cover)
+    notification = pynotify.Notification(title, body, final_image)
+    notification.show()
+
+    if async:
+        backend.handle_async(cover, async)
+        cover = backend.resize_image(cover)
+        
+    notification.update(title, body, cover)
     notification.show()
 
 def display_notification_config(config_name):
