@@ -88,10 +88,9 @@ class AmazonBackend(CoverBackend):
             return None, None
 
     def handle_async(self, filename, result):
-        try:
-            os.mkdir(os.path.split(filename)[0])
-        except IOError, e:
-            pass
+        dirpath = os.path.split(filename)[0]
+        if not os.path.exists(dirpath):
+            os.mkdir(dirpath)
         handle = open(filename, "w")
         art = urllib2.urlopen(self.URL % result.ASIN)
         handle.write(art.read())
