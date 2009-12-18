@@ -124,7 +124,7 @@ class MusicDirBackend(CoverBackend):
 class CoversDirBackend(CoverBackend):
     def get_icon(self, opts):
         if 'artist' not in opts or 'album' not in opts:
-            return None
+            return None, None
         
         cover = os.path.join(os.path.expanduser("~/.covers"),
                              opts['artist'].replace("/", " "),
