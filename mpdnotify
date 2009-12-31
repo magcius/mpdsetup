@@ -13,9 +13,15 @@
 #     found at http://git.thejat.be/python-mpd.git/
 #   
 #   pygtk (for icon finding)
+#
+#   PIL (for resizing icons)
 #   
 #   configobj (for config reading)
 #     comes with bzr, you can also easy_install configobj
+#
+#   Optional: setproctitle
+#     This sets the process title for pgrep, ps aux, and killall.
+#     easy_install setproctitle
 
 import sys
 import os
@@ -35,7 +41,6 @@ pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 # those used by mpc and foobar.
 class PercentTemplate(Template):
     pattern = "%(?P<named>[_a-z][_a-z0-9]*)%"
-
 
 def str_fn_index(s, fn, arg):
     if isinstance(arg, basestring):
@@ -323,6 +328,12 @@ COMMANDS = {
 }
 
 if __name__ == "__main__":
+
+    try:
+        import setproctitle
+        setproctitle.setproctitle("mpdnotify")
+    except ImportError:
+        pass
     
     if len(sys.argv) < 2:
         # Start daemon.
