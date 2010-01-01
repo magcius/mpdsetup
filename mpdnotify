@@ -81,16 +81,19 @@ class AmazonBackend(CoverBackend):
 
     
     def get_icon(self, opts):
-        try:
-            result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
-            result = result[0]
-            filename = os.path.join(os.path.expanduser("~/.covers"),
-                                    opts['artist'].replace("/", " "),
-                                    "%s.jpg" % opts['album'].replace("/", " "))
-            return filename, result
-        
-        except (KeyError, self.ecs.SignatureDoesNotMatch), e:
-            return None, None
+        while True:
+            try:
+                result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
+                result = result[0]
+                filename = os.path.join(os.path.expanduser("~/.covers"),
+                                        opts['artist'].replace("/", " "),
+                                        "%s.jpg" % opts['album'].replace("/", " "))
+                return filename, result
+            
+            except (KeyError, self.ecs.SignatureDoesNotMatch), e:
+                return None, None
+            except self.ecs.InternalError:
+                time.sleep(0.5)
 
     def handle_async(self, filename, result):
         dirpath = os.path.split(filename)[0]
