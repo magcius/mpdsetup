@@ -58,6 +58,11 @@ class CoverBackend(object):
     def get_icon(self, opts):
         return None, None
 
+    def get_filename(self, opts):
+        return os.path.join(os.path.expanduser("~/.covers"),
+                            opts['artist'].replace("/", " "),
+                            "%s.jpg" % opts['album'].replace("/", " "))
+
     def resize_image(self, filename):
         cover_small  = "%s.small%s" % os.path.splitext(filename)
         
@@ -71,7 +76,20 @@ class CoverBackend(object):
     
         return cover_small
 
-class AmazonBackend(CoverBackend):
+class URLFetcherBackend(CoverBackend):
+    def handle_async(self, filename, result):
+        dirpath = os.path.split(filename)[0]
+        if not os.path.exists(dirpath):
+            os.mkdir(dirpath)
+        url = self.get_url(result)
+        if url:
+            handle = open(filename, "w")
+            art = urllib2.urlopen(url)
+            handle.write(art.read())
+            handle.close()
+
+
+class AmazonBackend(URLFetcherBackend):
     URL = "http://images.amazon.com/images/P/%s.01._SCLZZZZZZZ_.jpg"
     def __init__(self, config):
         from pyaws import ecs
@@ -85,24 +103,51 @@ class AmazonBackend(CoverBackend):
             try:
                 result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
                 result = result[0]
-                filename = os.path.join(os.path.expanduser("~/.covers"),
-                                        opts['artist'].replace("/", " "),
-                                        "%s.jpg" % opts['album'].replace("/", " "))
-                return filename, result
+                return self.get_filename(opts), result
             
             except (KeyError, self.ecs.SignatureDoesNotMatch), e:
                 return None, None
             except self.ecs.InternalError:
                 time.sleep(0.5)
 
-    def handle_async(self, filename, result):
-        dirpath = os.path.split(filename)[0]
-        if not os.path.exists(dirpath):
-            os.mkdir(dirpath)
-        handle = open(filename, "w")
-        art = urllib2.urlopen(self.URL % result.ASIN)
-        handle.write(art.read())
-        handle.close()
+    def get_url(self, result):
+        return self.URL % result.ASIN
+
+class LastFmBackend(URLFetcherBackend):
+    def __init__(self, config):
+        from lastfm import api
+        self.api = api.Api(config["api_key"])
+
+    def get_icon(self, opts):
+        results = self.api.search_track(opts['title'], opts['artist'])
+        return self.get_filename(opts), next(iter(results))
+
+    def get_url(self, result):
+        print result
+        def get_largest(images):
+            for i in ("mega", "extralarge", "large", "medium", "small"):
+                try:
+                    return images[i]
+                except KeyError:
+                    continue
+
+        try:
+            image = get_largest(result.image)
+            if image: return image
+        except AttributeError:
+            pass
+     
+        try:
+            image = get_largest(result.album.image)
+            if image: return image
+        except AttributeError:
+            pass
+         
+        try:
+            image = get_largest(result.artist.image)
+            if image: return image
+        except AttributeError:
+            pass
         
 class MusicDirBackend(CoverBackend):
     def __init__(self, config):
@@ -133,10 +178,8 @@ class CoversDirBackend(CoverBackend):
     def get_icon(self, opts):
         if 'artist' not in opts or 'album' not in opts:
             return None, None
-        
-        cover = os.path.join(os.path.expanduser("~/.covers"),
-                             opts['artist'].replace("/", " "),
-                             "%s.jpg" % opts['album'].replace("/", " "))
+
+        cover = self.get_filename(opts)
         
         if os.path.exists(cover):
             return cover, None
@@ -160,6 +203,7 @@ BACKENDS["amazon"]   = AmazonBackend
 BACKENDS["musicdir"] = MusicDirBackend
 BACKENDS[".covers"]  = CoversDirBackend
 BACKENDS["icons"]    = GTKIconThemeBackend
+BACKENDS["lastfm"]   = LastFmBackend
 
 def make_list(v):
     try:
@@ -176,7 +220,7 @@ cover_size      = tuple(int(n) for n in covers_config['size'])
 
 backends = []
 
-for backend in make_list(covers_config['cover_backends']):
+for backend in make_list(covers_config['backends']):
     backends.append(BACKENDS[backend](config.get('covers:backend:'+backend, {})))
 
 pynotify.init("mpdnotify")
@@ -232,13 +276,13 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
         loading = False
         for backend in backends:
             cover, async = backend.get_icon(opts)
-                
+            
             if cover:
                 break
+
+            if cover and os.path.exists(cover) and not async:
+                cover = backend.resize_image(cover)
             
-        if cover and os.path.exists(cover):
-            cover = backend.resize_image(cover)
-    
     title = title_format.substitute_default(opts)
     body  = cgi.escape(body_format.substitute_default(opts))
 
