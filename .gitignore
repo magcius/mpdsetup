@@ -1,0 +1,8 @@
+*.svn*
+*.hg*
+*.pyc*
+*.pyd*
+*.hg*
+*.rope*
+*tests*
+*.bzr*
