@@ -120,7 +120,7 @@ class LastFmBackend(URLFetcherBackend):
 
     def get_icon(self, opts):
         results = self.api.search_track(opts['title'], opts['artist'])
-        return self.get_filename(opts), next(iter(results))
+        return self.get_filename(opts), next(iter(results), None)
 
     def get_url(self, result):
         def get_largest(images):
@@ -279,8 +279,8 @@ def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon
             if cover:
                 break
 
-            if cover and os.path.exists(cover) and not async:
-                cover = backend.resize_image(cover)
+    if cover and os.path.exists(cover) and not async:
+        cover = backend.resize_image(cover)
             
     title = title_format.substitute_default(opts)
     body  = cgi.escape(body_format.substitute_default(opts))
