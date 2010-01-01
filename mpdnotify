@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+g#!/usr/bin/env python
 # Newer, shinier mpdnotify using Python!
 # Coded on the night of Thu, Jun 25, 2009 (10:15 PM to be exact!)
 # JP St. Pierre <jstpierre@mecheye.net>
@@ -123,7 +123,6 @@ class LastFmBackend(URLFetcherBackend):
         return self.get_filename(opts), next(iter(results))
 
     def get_url(self, result):
-        print result
         def get_largest(images):
             for i in ("mega", "extralarge", "large", "medium", "small"):
                 try:
