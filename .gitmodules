@@ -1,0 +1,3 @@
+[submodule "python-mpd"]
+	path = python-mpd
+	url = git://github.com/magcius/python-mpd.git

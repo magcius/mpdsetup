@@ -29,11 +29,41 @@ import cgi
 import pynotify
 import urllib2
 
+try:
+    from lxml import etree
+    print("running with lxml.etree")
+except ImportError:
+    try:
+        # Python 2.5
+        import xml.etree.cElementTree as etree
+        print("running with cElementTree on Python 2.5+")
+    except ImportError:
+        try:
+            # Python 2.5
+            import xml.etree.ElementTree as etree
+            print("running with ElementTree on Python 2.5+")
+        except ImportError:
+            try:
+                # normal cElementTree install
+                import cElementTree as etree
+                print("running with cElementTree")
+            except ImportError:
+                try:
+                    # normal ElementTree install
+                    import elementtree.ElementTree as etree
+                    print("running with ElementTree")
+                except ImportError:
+                    print("Failed to import ElementTree from any known place")
+
+
 from PIL import Image
 from configobj import ConfigObj, Section
 from string import Template
-from mpd import MPDClient, ConnectionError
 from socket import error as SocketError
+
+from mpd import MPDProtocol
+from twisted.web import client, xmlrpc
+from twisted.internet import reactor, protocol
 
 pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 
@@ -61,7 +91,7 @@ class CoverBackend(object):
     def get_filename(self, opts):
         return os.path.join(os.path.expanduser("~/.covers"),
                             opts['artist'].replace("/", " "),
-                            "%s.jpg" % opts['album'].replace("/", " "))
+                            "%s.jpg" % opts.get('album', "no-album").replace("/", " "))
 
     def resize_image(self, filename):
         cover_small  = "%s.small%s" % os.path.splitext(filename)
@@ -83,20 +113,16 @@ class URLFetcherBackend(CoverBackend):
             os.mkdir(dirpath)
         url = self.get_url(result)
         if url:
-            handle = open(filename, "w")
-            art = urllib2.urlopen(url)
-            handle.write(art.read())
-            handle.close()
+            client.downloadPage(url, filename)
 
 
 class AmazonBackend(URLFetcherBackend):
     URL = "http://images.amazon.com/images/P/%s.01._SCLZZZZZZZ_.jpg"
     def __init__(self, config):
         from pyaws import ecs
-        ecs.setLicenseKey(config["api_key"])
+        ecs.setLicenseKey(config['api_key'])
         ecs.setSecretAccessKey(config["secret_key"])
         self.ecs = ecs
-
     
     def get_icon(self, opts):
         while True:
@@ -115,23 +141,27 @@ class AmazonBackend(URLFetcherBackend):
 
 class LastFmBackend(URLFetcherBackend):
     def __init__(self, config):
-        from lastfm import api
-        self.api = api.Api(config["api_key"])
+        self.api = xmlrpc.Proxy("http://ws.audioscrobbler.com/2.0/")
 
     def get_icon(self, opts):
-        results = self.api.search_track(opts['title'], opts['artist'])
-        return self.get_filename(opts), next(iter(results), None)
+        try:
+            results = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=config['api_key']))
+            return self.get_filename(opts), next(iter(results), None)
+        except KeyError:
+            return None, None
 
     def get_url(self, result):
         def get_largest(images):
-            for i in ("mega", "extralarge", "large", "medium", "small"):
+            for size in ("mega", "extralarge", "large", "medium", "small"):
                 try:
-                    return images[i]
+                    return element.find("./image[@size='%s']" % (size,))
                 except KeyError:
                     continue
 
+        tree = etree.parse(result)
+        
         try:
-            image = get_largest(result.image)
+            image = get_largest(tree.getroot()[0].find("trackmatches").find("track"))
             if image: return image
         except AttributeError:
             pass
@@ -211,21 +241,7 @@ def make_list(v):
     except TypeError:
         return [v]
 
-config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
-
-covers_config = config['covers']
-
-cover_size      = tuple(int(n) for n in covers_config['size'])
-
-backends = []
-
-for backend in make_list(covers_config['backends']):
-    backends.append(BACKENDS[backend](config.get('covers:backend:'+backend, {})))
-
 pynotify.init("mpdnotify")
-
-client = MPDClient()
-client.connect(config['daemon']['host'], config['daemon']['port'])
 
 # Hack for string.Template and the KeyError problem.
 # Substitute a default instead of throwing a KeyError.
@@ -238,109 +254,113 @@ def template_substitute_default(self, args, default=''):
 
 Template.substitute_default = template_substitute_default
 
-def get_opts(joiner):
-    
-    def parse_time(opts):
-        if "time" in opts:
-            elapsed, duration = (divmod(int(n), 60) for n in opts['time'].split(":"))
-            return dict(elapsed="%d:%02d" % elapsed, duration="%d:%02d" % duration)
-        return dict()
-    
-    opts = dict()
-    
-    opts.update(client.status())
-    opts.update(parse_time(opts))
-    opts.update(client.stats())
-    opts.update(client.currentsong())
-    opts.update(dict(pretty_state=pretty_state[opts['state']]))
-    
-    # If we have multiple tags, join them.
-    for key, val in opts.iteritems():
-        if isinstance(val, list):
-            opts[key] = joiner.join(val)
-    
-    return opts
+class MPDFactory(protocol.ReconnectingClientFactory):
+    protocol = MPDProtocol
 
-def display_notification(title, body, enable_covers=True, tags_joiner=', ', icon=None):
-    # And format our stuff.
-    title_format = PercentTemplate(title)
-    body_format  = PercentTemplate(body)
+
+
+class MPDNotifyDaemon(object):
+
+    def __init__(self):
+        config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
+        covers_config = config['covers']
+        cover_size      = tuple(int(n) for n in covers_config['size'])
+        backends = []
+
+        for backend in make_list(covers_config['backends']):
+            backends.append(BACKENDS[backend](config.get('covers:backend:'+backend, {})))
     
-    opts = get_opts(tags_joiner)
-    opts['icon'] = icon
-    
-    # Covers are enabled.
-    if enable_covers and "file" in opts:
+    def get_opts(self, joiner):
+        def parse_time(opts):
+            if "time" in opts:
+                elapsed, duration = (divmod(int(n), 60) for n in opts['time'].split(":"))
+                return dict(elapsed="%d:%02d" % elapsed, duration="%d:%02d" % duration)
+            return dict()
+
+        opts = dict()
+
+        opts.update(self.client.status())
+        opts.update(parse_time(opts))
+        opts.update(self.client.stats())
+        opts.update(self.client.currentsong())
+        opts.update(dict(pretty_state=pretty_state[opts['state']]))
+
+        # If we have multiple tags, join them.
+        for key, val in opts.iteritems():
+            if isinstance(val, list):
+                opts[key] = joiner.join(val)
         
-        loading = False
-        for backend in backends:
-            cover, async = backend.get_icon(opts)
-            
-            if cover:
-                break
-
-    if cover and os.path.exists(cover) and not async:
-        cover = backend.resize_image(cover)
-            
-    title = title_format.substitute_default(opts)
-    body  = cgi.escape(body_format.substitute_default(opts))
-
-    final_image = cover
-    if async:
-        final_image = None
+        return opts
     
-    # And launch the notification!
-    notification = pynotify.Notification(title, body, final_image)
-    notification.show()
+    def display_notification(self, title, body, enable_covers=True, tags_joiner=', ', icon=None):
+        # And format our stuff.
+        title_format = PercentTemplate(title)
+        body_format  = PercentTemplate(body)
+    
+        opts = self.get_opts(tags_joiner)
+        opts['icon'] = icon
 
-    if async:
-        backend.handle_async(cover, async)
-        cover = backend.resize_image(cover)
+        cover, async, final_image = None, None, None
         
-    notification.update(title, body, cover)
-    notification.show()
+        # Covers are enabled.
+        if enable_covers and "file" in opts:
+        
+            for backend in backends:
+                cover, async = backend.get_icon(opts)
+                
+                if cover:
+                    break
 
-def display_notification_config(config_name):
-    # If we don't want to display a notification,
-    # don't do so.
-    if "notification_%s" % config_name not in config:
-        return
+            if cover and os.path.exists(cover) and not async:
+                final_image = backend.resize_image(cover)
+            
+        title = title_format.substitute_default(opts)
+        body  = cgi.escape(body_format.substitute_default(opts))
     
-    # Get our configuration
-    not_cfg = config["notification_%s" % config_name]
-    title       = not_cfg.get("title_format", "")
-    body        = not_cfg.get("body_format",  "")
-    tags_joiner = not_cfg.get("tags_joiner",  ", ")
-    covers      = not_cfg.get("covers",       False)
-    icon        = not_cfg.get("icon",         "")
+        # And launch the notification!
+        notification = pynotify.Notification(title, body, final_image)
+        notification.show()
+        
+        if enabled_covers and async:
+            backend.handle_async(cover, async)
+            cover = backend.resize_image(cover)
+            
+            notification.update(title, body, cover)
+            notification.show()
     
-    display_notification(title, body, covers, tags_joiner, icon)
+    def display_notification_config(self, config_name):
+        # If we don't want to display a notification,
+        # don't do so.
+        if "notification_%s" % config_name not in config:
+            return
+    
+        # Get our configuration
+        not_cfg = config["notification_%s" % config_name]
+        title       = not_cfg.get("title_format", "")
+        body        = not_cfg.get("body_format",  "")
+        tags_joiner = not_cfg.get("tags_joiner",  ", ")
+        covers      = not_cfg.get("covers",       False)
+        icon        = not_cfg.get("icon",         "")
+        
+        display_notification(title, body, covers, tags_joiner, icon)
+    
+    
+    def idle_finished(data):
+        for reason in reasons:
+            display_notification_config(config_name)
 
-def daemon():
-    global client
-    if tuple(int(m) for m in client.mpd_version.split('.')) < (0, 14, 0):
-        print "You need a version of mpd that is 0.14 or greater"
-        sys.exit(1)
-    try:
-        while True:
+        deferred = self.client.idle()
+        deferred.addCallback(idle_finished)
 
-            
-            client = MPDClient()
-            client.connect(config['daemon']['host'], config['daemon']['port'])
-            
-            try:
-                # Idle for a reason.
-                reasons = client.idle()
-            
-                for reason in reasons:
-                    # Show the notitication
-                    display_notification_config(reason)
-                    
-            except (ConnectionError, SocketError), e:
-                continue
-            
-    except KeyboardInterrupt:
-        pass
+    def run():
+        self.factory = MPDFactory()
+
+        # Idle for a reason.
+        deferred = self.client.idle()
+        deferred.addCallback(idle_finished)
+    
+        reactor.connectTCP(config['daemon']['host'], config['daemon']['port'], factory)
+        reactor.run()
 
 def help_command(command=""):
     if command == "":
@@ -362,11 +382,11 @@ def help_command(command=""):
         print '      use the name "cover" for the icon parameter if you want'
         print "      to show cover art"
 
-def display_notification_command(arg1="", body="", icon=""):
-    if ("notification_%s" % arg1) in config:
-        display_notification_config(arg1)
+def display_notification_command(arg="", body="", icon=""):
+    if ("notification_%s" % arg) in config:
+        display_notification_config(arg)
     else:
-        display_notification(arg1, body, icon == "cover", "", icon)
+        display_notification(arg, body, icon == "cover", "", icon)
 
 COMMANDS = {
     "help":     help_command,
@@ -384,7 +404,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         # Start daemon.
         # Here we go.
-        daemon()
+        daemon = MPDNotifyDaemon()
+        daemon.run()
         sys.exit(1)
         
     else:
