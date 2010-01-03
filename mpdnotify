@@ -30,31 +30,29 @@ import cgi
 import pynotify
 import urllib2
 
+import warnings
+warnings.simplefilter("ignore", (DeprecationWarning, SyntaxWarning))
+
 try:
     from lxml import etree
-    print("running with lxml.etree")
 except ImportError:
     try:
         # Python 2.5
         import xml.etree.cElementTree as etree
-        print("running with cElementTree on Python 2.5+")
     except ImportError:
         try:
             # Python 2.5
             import xml.etree.ElementTree as etree
-            print("running with ElementTree on Python 2.5+")
         except ImportError:
             try:
                 # normal cElementTree install
                 import cElementTree as etree
-                print("running with cElementTree")
             except ImportError:
                 try:
                     # normal ElementTree install
                     import elementtree.ElementTree as etree
-                    print("running with ElementTree")
                 except ImportError:
-                    print("Failed to import ElementTree from any known place")
+                    sys.exit("Failed to import ElementTree from any known place")
 
 
 from PIL import Image
@@ -94,13 +92,13 @@ class CoverBackend(object):
                             opts['artist'].replace("/", " "),
                             "%s.jpg" % opts.get('album', "no-album").replace("/", " "))
 
-    def resize_image(self, filename):
+    def resize_image(self, filename, size):
         cover_small  = "%s.small%s" % os.path.splitext(filename)
         
         if not os.path.exists(cover_small):
             try:
                 img = Image.open(filename)
-                img.thumbnail(cover_size, Image.ANTIALIAS)
+                img.thumbnail(size, Image.ANTIALIAS)
                 img.save(cover_small)
             except IOError:
                 return None
@@ -115,8 +113,12 @@ class URLFetcherBackend(CoverBackend):
 
     def download_icon(self, url, opts):
         filename = self.get_filename(opts)
+        dirpath = os.path.dirname(filename)
+        if not os.path.exists(dirpath):
+            os.mkdir(dirpath)
         deferred = client.downloadPage(url, filename)
         deferred.addCallback(lambda value: filename)
+        return deferred
 
 class AmazonBackend(URLFetcherBackend):
     URL = "http://images.amazon.com/images/P/%s.01._SCLZZZZZZZ_.jpg"
@@ -131,7 +133,7 @@ class AmazonBackend(URLFetcherBackend):
             try:
                 result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
                 result = result[0]
-                return defer.succeed(self.URL % result.ASIN)
+                return defer.succeed(self.URL % str(result.ASIN))
             except (KeyError, self.ecs.SignatureDoesNotMatch), e:
                 return defer.fail()
             except self.ecs.InternalError:
@@ -219,11 +221,7 @@ BACKENDS["icons"]    = GTKIconThemeBackend
 BACKENDS["lastfm"]   = LastFmBackend
 
 def make_list(v):
-    try:
-        v[0]
-        return v
-    except TypeError:
-        return [v]
+    return list(v) if isinstance(v, (list, tuple)) else [v]
 
 pynotify.init("mpdnotify")
 
@@ -243,7 +241,7 @@ class MPDNotifyDaemon(object):
     def __init__(self):
         self.config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
         covers_config = self.config['covers']
-        cover_size      = tuple(int(n) for n in covers_config['size'])
+        self.cover_size      = tuple(int(n) for n in covers_config['size'])
         self.backends = []
 
         for backend in make_list(covers_config['backends']):
@@ -291,7 +289,7 @@ class MPDNotifyDaemon(object):
                     break
                 
             if cover and os.path.exists(cover):
-                final_image = backend.resize_image(cover)
+                final_image = backend.resize_image(cover, self.cover_size)
             
         title = title_format.substitute_default(opts)
         body  = cgi.escape(body_format.substitute_default(opts))
@@ -301,13 +299,13 @@ class MPDNotifyDaemon(object):
         notification.show()
         
         if enable_covers and deferred:
-            deferred.addCallback(self.update_notification, notification, title, body)
+            deferred.addCallback(self.update_notification, backend, notification, title, body)
 
-    def update_notification(self, deferred, notification, title, body):
-        def internal(self, cover):
-            notification.update(title, body, cover)
-            notification.show()
-            
+    def update_notification(self, cover, backend, notification, title, body):
+        cover = backend.resize_image(cover, self.cover_size)
+        notification.update(title, body, cover)
+        notification.show()
+        
         deferred.addCallback(internal)
     
     def display_notification_config(self, config_name):
@@ -318,17 +316,23 @@ class MPDNotifyDaemon(object):
     
         # Get our configuration
         not_cfg = self.config["notification_%s" % config_name]
+
+        if "redirect" in not_cfg:
+            reasons = make_list(not_cfg["redirect"])
+            for reason in reasons:
+                self.display_notification_config(reason)
+        
         title       = not_cfg.get("title_format", "")
         body        = not_cfg.get("body_format",  "")
         tags_joiner = not_cfg.get("tags_joiner",  ", ")
         covers      = not_cfg.get("covers",       False)
         icon        = not_cfg.get("icon",         "")
-        
-        self.display_notification(title, body, covers, tags_joiner, icon)
+
+        if body:
+            self.display_notification(title, body, covers, tags_joiner, icon)
     
     
     def idle_finished(self, reasons):
-        print reasons
         for reason in reasons:
             self.display_notification_config(reason)
             
@@ -337,7 +341,7 @@ class MPDNotifyDaemon(object):
 
     def received_client(self, client):
         self.client = client
-        self.idle_finished([])
+        self.idle_finished(['startup'])
 
     def run(self):
         factory = MPDFactory()
