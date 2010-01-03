@@ -18,8 +18,9 @@ import os
 
 from query import search, parse_bash_quotes, play, run
 
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
 
+@defer.inlineCallbacks
 def main(client):
     terms = parse_bash_quotes(sys.argv[1:])
 
@@ -28,7 +29,7 @@ def main(client):
         print "No query was entered."
         return
     
-    results = search(terms, client)
+    results = yield search(terms, client)
     
     # If we have no results, exit.
     if not results:
@@ -36,7 +37,7 @@ def main(client):
         return
     
     # Get the song ids and the current song id.
-    currentfile = client.currentsong(blocking=True).get("file", None)
+    currentfile = yield client.currentsong().get("file", None)
     
     # If the current song is in the
     # search results, go to the next
@@ -44,12 +45,11 @@ def main(client):
     # Otherwise, start at the first song.
     index = 0
     for i, D in enumerate(results):
+        S = " "
         if D['file'] == currentfile:
             index = (i+1)%len(results)
-    
-    # Print our results.
-    for i, D in enumerate(results):
-        print "%s%s - %s - %s" % (">" if i == index else " ", D.get('artist', ''), D.get('album', ''), D.get('title', ''))
+            S = ">"
+        print "%s%s - %s - %s" % (S, D.get('artist', ''), D.get('album', ''), D.get('title', ''))
     
     # Get the next song and play it.
     play(results[index]['file'], client)

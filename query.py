@@ -49,6 +49,7 @@ class Comparison(Node):
     def unfold_outer(self):
         return self.coll[0].unfold_collection(self)
 
+    @defer.inlineCallbacks
     def search(self, client, state=None, order=None):
         op, tag, value = self.op[0], self.tag_[0], self.value[0]
         
@@ -63,25 +64,26 @@ class Comparison(Node):
         # Return a set to do intersections and unions on for AND and OR.
         # "state" contains the filename => info mapping.
         S = set()
-        for D in meth(tag, value, blocking=True):
+        for D in (yield meth(tag, value)):
             if 'file' not in D:
                 continue
             state[D['file']] = D
             order.append(D['file'])
             S.add(D['file'])
         
-        return S, state, order
+        defer.returnValue((S, state, order))
     
 class CombiningOp(Node):
     unfold_outer = _unfold('unfold_outer')
     unfold_collection = _unfold('unfold_collection')
-    
+
+    @defer.inlineCallbacks
     def search(self, client, state=None, order=None):
         if state is None:
             state = {}
             order = []
         
-        return self.op(*[node.search(client, state, order)[0] for node in self]), state, order
+        defer.returnValue((self.op(*(next(node.search(client, state, order)) for node in self)), state, order))
 
 # Fix a problem with the descriptor problem by using staticmethod.
 class AndNode(CombiningOp): op = staticmethod(set.intersection)
@@ -140,21 +142,23 @@ def parse_query(string):
         return folded
     return ast[0]
 
+@defer.inlineCallbacks
 def search_ast(ast, client):
-    fileset, state, order = ast.search(client)
+    fileset, state, order = yield ast.search(client)
     L = [state[f] for f in order if f in fileset]
-    return L
+    defer.returnValue(L)
 
 def search(query, client):
     return search_ast(parse_query(query), client)
 
+@defer.inlineCallbacks
 def play(filename, client):
-    songs = client.playlistfind('file', filename, blocking=True)
+    songs = yield client.playlistfind('file', filename)
     songid = None
     if songs:
         songid = list(songs)[0]['id']
     else:
-        songid = client.addid(filename, blocking=True)
+        songid = yield client.addid(filename)
     client.playid(songid)
     
 

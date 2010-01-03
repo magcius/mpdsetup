@@ -24,7 +24,7 @@ import os
 from twisted.internet import gtk2reactor
 gtk2reactor.install()
 
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
 
 from query import search, play, run
 
@@ -41,6 +41,7 @@ class GUI(object):
             client.deleteid(id)
         reactor.stop()
 
+    @defer.inlineCallbacks
     def do_search(self):
         
         query = self.entry.get_text()
@@ -48,7 +49,7 @@ class GUI(object):
         if not query:
             return
         
-        results = search(query, self.client)
+        results = yield search(query, self.client)
         self.liststore.clear()
 
         if len(results) == 1:

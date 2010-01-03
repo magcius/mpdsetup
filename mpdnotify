@@ -246,7 +246,8 @@ class MPDNotifyDaemon(object):
 
         for backend in make_list(covers_config['backends']):
             self.backends.append(BACKENDS[backend](self.config.get('covers:backend:'+backend, {})))
-    
+
+    @defer.inlineCallbacks
     def get_opts(self, joiner):
         def parse_time(opts):
             if "time" in opts:
@@ -255,26 +256,27 @@ class MPDNotifyDaemon(object):
             return dict()
 
         opts = dict()
-
-        opts.update(self.client.status(blocking=True))
+        
+        opts.update((yield self.client.status()))
         opts.update(parse_time(opts))
-        opts.update(self.client.stats(blocking=True))
-        opts.update(self.client.currentsong(blocking=True))
+        opts.update((yield self.client.stats()))
+        opts.update((yield self.client.currentsong()))
         opts.update(dict(pretty_state=pretty_state[opts['state']]))
-
+        
         # If we have multiple tags, join them.
         for key, val in opts.iteritems():
             if isinstance(val, list):
                 opts[key] = joiner.join(val)
         
-        return opts
-    
+        defer.returnValue(opts)
+
+    @defer.inlineCallbacks
     def display_notification(self, title, body, enable_covers=True, tags_joiner=', ', icon=None):
         # And format our stuff.
         title_format = PercentTemplate(title)
         body_format  = PercentTemplate(body)
         
-        opts = self.get_opts(tags_joiner)
+        opts = yield self.get_opts(tags_joiner)
         opts['icon'] = icon
 
         cover, async, final_image = None, None, None
@@ -307,7 +309,8 @@ class MPDNotifyDaemon(object):
         notification.show()
         
         deferred.addCallback(internal)
-    
+
+    @defer.inlineCallbacks
     def display_notification_config(self, config_name):
         # If we don't want to display a notification,
         # don't do so.
@@ -329,13 +332,14 @@ class MPDNotifyDaemon(object):
         icon        = not_cfg.get("icon",         "")
 
         if body:
-            self.display_notification(title, body, covers, tags_joiner, icon)
-    
-    
+            value = yield self.display_notification(title, body, covers, tags_joiner, icon)
+
+    @defer.inlineCallbacks
     def idle_finished(self, reasons):
+        
         for reason in reasons:
-            self.display_notification_config(reason)
-            
+            value = yield self.display_notification_config(reason)
+        
         deferred = self.client.idle()
         deferred.addCallback(self.idle_finished)
 
