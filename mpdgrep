@@ -52,7 +52,7 @@ def main(client):
         print "%s%s - %s - %s" % (S, D.get('artist', ''), D.get('album', ''), D.get('title', ''))
     
     # Get the next song and play it.
-    play(results[index]['file'], client)
+    yield play(results[index]['file'], client)
 
     reactor.stop()
 

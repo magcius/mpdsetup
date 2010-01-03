@@ -323,7 +323,7 @@ class MPDNotifyDaemon(object):
         if "redirect" in not_cfg:
             reasons = make_list(not_cfg["redirect"])
             for reason in reasons:
-                self.display_notification_config(reason)
+                yield self.display_notification_config(reason)
         
         title       = not_cfg.get("title_format", "")
         body        = not_cfg.get("body_format",  "")
@@ -332,13 +332,13 @@ class MPDNotifyDaemon(object):
         icon        = not_cfg.get("icon",         "")
 
         if body:
-            value = yield self.display_notification(title, body, covers, tags_joiner, icon)
+            yield self.display_notification(title, body, covers, tags_joiner, icon)
 
     @defer.inlineCallbacks
     def idle_finished(self, reasons):
         
         for reason in reasons:
-            value = yield self.display_notification_config(reason)
+            yield self.display_notification_config(reason)
         
         deferred = self.client.idle()
         deferred.addCallback(self.idle_finished)

@@ -159,7 +159,7 @@ def play(filename, client):
         songid = list(songs)[0]['id']
     else:
         songid = yield client.addid(filename)
-    client.playid(songid)
+    yield client.playid(songid)
     
 
 # This is sys.argv[1:], so any arguments that have spaces in them

@@ -21,6 +21,9 @@ import gtk
 import sys
 import os
 
+import warnings
+warnings.simplefilter("ignore", DeprecationWarning)
+
 from twisted.internet import gtk2reactor
 gtk2reactor.install()
 
@@ -53,7 +56,7 @@ class GUI(object):
         self.liststore.clear()
 
         if len(results) == 1:
-            play(results[0]['file'], self.client)
+            yield play(results[0]['file'], self.client)
             self.destroy()
         else:
             for D in results:
@@ -82,13 +85,14 @@ class GUI(object):
         if event.keyval == RETURN_KEY:
             self.do_search()
 
+    @defer.inlineCallbacks
     def okay(self, event=None):
         path, _ = self.treeview.get_cursor()
         if path:
             it = self.liststore.get_iter(path)
             filename = self.liststore.get_value(it, 0)
             if filename:
-                play(filename, self.client)
+                yield play(filename, self.client)
         self.destroy()
 
     def set_sensitive(self, value):
