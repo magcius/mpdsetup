@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-# mpdgrep.py
-# Newer, shinier mpdgrep using Python!
+# gtkfind.py
+# Newer, shinier zenfind using Python!
 # Coded on the night of Sat, Oct 24, 2009 (7:15 PM to be exact!)
 # JP St. Pierre <jstpierre@mecheye.net>
 
@@ -21,28 +21,38 @@ import gtk
 import sys
 import os
 
-from query import search, client, play
+from twisted.internet import gtk2reactor
+gtk2reactor.install()
+
+from twisted.internet import reactor
+
+from query import search, play, run
 
 RETURN_KEY, _ = gtk.accelerator_parse("Return")
 ESCAPE_KEY, _ = gtk.accelerator_parse("Escape")
 
 class GUI(object):
+    
     def delete_event(self, widget, event, data=None):
         return False
 
     def destroy(self, widget=None, data=None):
         for id in self.ids:
             client.deleteid(id)
-        gtk.main_quit()
+        reactor.stop()
 
     def do_search(self):
         
         query = self.entry.get_text()
-        results = search(query)
+        
+        if not query:
+            return
+        
+        results = search(query, self.client)
         self.liststore.clear()
 
         if len(results) == 1:
-            play(results[0]['file'])
+            play(results[0]['file'], self.client)
             self.destroy()
         else:
             for D in results:
@@ -54,11 +64,11 @@ class GUI(object):
     
     def search_click(self, event):
         self.do_search()
-
+    
     def window_key(self, widget, event):
         if event.keyval == ESCAPE_KEY:
             self.destroy()
-
+    
     def treeview_key(self, widget, event):
         if event.keyval == RETURN_KEY:
             self.okay()
@@ -77,7 +87,7 @@ class GUI(object):
             it = self.liststore.get_iter(path)
             filename = self.liststore.get_value(it, 0)
             if filename:
-                play(filename)
+                play(filename, self.client)
         self.destroy()
 
     def set_sensitive(self, value):
@@ -90,8 +100,10 @@ class GUI(object):
     def disable(self):
         self.set_sensitive(False)
     
-    def __init__(self):
+    def __init__(self, client):
 
+        self.client = client
+        
         icon_theme = gtk.icon_theme_get_default()
         icon_list  = [icon_theme.load_icon("audio-x-generic", size, 0) for size in (16, 32, 48, 64, 128)]
         
@@ -173,5 +185,4 @@ class GUI(object):
         window.show()
         
 if __name__ == "__main__":
-    gui = GUI()
-    gtk.main()
+    run(GUI)

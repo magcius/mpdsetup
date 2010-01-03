@@ -4,8 +4,12 @@
 import os.path
 import sys
 
+import warnings
+warnings.simplefilter('ignore', DeprecationWarning)
+
 from lepl import Node, Word, Regexp, String, Drop, Delayed, Eos, Separator, Or
 from mpd import MPDFactory
+from twisted.internet import reactor, defer
 
 # ================================================================================
 # Helper functions
@@ -59,13 +63,13 @@ class Comparison(Node):
         # Return a set to do intersections and unions on for AND and OR.
         # "state" contains the filename => info mapping.
         S = set()
-        for D in meth(tag, value):
+        for D in meth(tag, value, blocking=True):
             if 'file' not in D:
                 continue
             state[D['file']] = D
             order.append(D['file'])
             S.add(D['file'])
-            
+        
         return S, state, order
     
 class CombiningOp(Node):
@@ -136,24 +140,22 @@ def parse_query(string):
         return folded
     return ast[0]
 
-def search_ast(ast, client_=None):
-    client_ = client_ or client
-    fileset, state, order = ast.search(client_)
+def search_ast(ast, client):
+    fileset, state, order = ast.search(client)
     L = [state[f] for f in order if f in fileset]
     return L
 
-def search(query, client=None):
+def search(query, client):
     return search_ast(parse_query(query), client)
 
-def play(filename, client_=None):
-    client_ = client_ or client
-    songs = client_.playlistfind('file', filename)
+def play(filename, client):
+    songs = client.playlistfind('file', filename, blocking=True)
     songid = None
     if songs:
-        songid = songs[0]['id']
+        songid = list(songs)[0]['id']
     else:
-        songid = client_.addid(filename)
-    client_.playid(songid)
+        songid = client.addid(filename, blocking=True)
+    client.playid(songid)
     
 
 # This is sys.argv[1:], so any arguments that have spaces in them
@@ -180,8 +182,13 @@ def parse_bash_quotes(args):
             L.append(S)
     return ' '.join(L)
 
-client = MPDClient()
-client.connect(os.getenv('MPD_HOST') or 'localhost', os.getenv('MPD_PORT') or 6600)
+def run(main):
+    factory = MPDFactory()
+    factory.connectionMade = defer.Deferred()
+    factory.connectionMade.addCallback(main)
+    factory.connectionMade.addCallback(reactor.stop)
+    reactor.connectTCP(os.getenv("MPD_HOST", "localhost"), os.getenv("MPD_PORT", 6600), factory)
+    reactor.run()
 
 if __name__ == '__main__':
     t = parse_bash_quotes(sys.argv[1:])

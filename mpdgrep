@@ -16,16 +16,17 @@
 import sys
 import os
 
-from query import search, client, parse_bash_quotes, play
+from query import search, parse_bash_quotes, play, run
 
-def main():
+def main(client):
     terms = parse_bash_quotes(sys.argv[1:])
 
     # Check our results.
     if not terms:
         print "No query was entered."
+        return
     
-    results = search(terms)
+    results = search(terms, client)
     
     # If we have no results, exit.
     if not results:
@@ -33,7 +34,7 @@ def main():
         return
     
     # Get the song ids and the current song id.
-    currentfile = client.currentsong().get("file", None)
+    currentfile = client.currentsong(blocking=True).get("file", None)
     
     # If the current song is in the
     # search results, go to the next
@@ -49,6 +50,6 @@ def main():
         print "%s%s - %s - %s" % (">" if i == index else " ", D.get('artist', ''), D.get('album', ''), D.get('title', ''))
     
     # Get the next song and play it.
-    play(results[index]['file'])
+    play(results[index]['file'], client)
 
-main()
+run(main)

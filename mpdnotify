@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # Newer, shinier mpdnotify using Python!
 # Coded on the night of Thu, Jun 25, 2009 (10:15 PM to be exact!)
+# Last updated on Sat, Jan 2, 2010
 # JP St. Pierre <jstpierre@mecheye.net>
 
 # Requires:
@@ -9,16 +10,16 @@
 #   
 #   pynotify
 #   
-#   mpd-python (latest development build)
-#     found at http://git.thejat.be/python-mpd.git/
-#   
 #   pygtk (for icon finding)
 #
-#   PIL (for resizing icons)
+#   PIL (for resizing icons/covers)
 #   
 #   configobj (for config reading)
 #     comes with bzr, you can also easy_install configobj
 #
+#   twisted
+#     should be standard on every linux install
+#   
 #   Optional: setproctitle
 #     This sets the process title for pgrep, ps aux, and killall.
 #     easy_install setproctitle
@@ -61,9 +62,9 @@ from configobj import ConfigObj, Section
 from string import Template
 from socket import error as SocketError
 
-from mpd import MPDProtocol
+from mpd import MPDFactory
 from twisted.web import client, xmlrpc
-from twisted.internet import reactor, protocol
+from twisted.internet import reactor, protocol, defer
 
 pretty_state = dict(play="Playing", pause="Paused", stop="Stopped")
 
@@ -107,14 +108,15 @@ class CoverBackend(object):
         return cover_small
 
 class URLFetcherBackend(CoverBackend):
-    def handle_async(self, filename, result):
-        dirpath = os.path.split(filename)[0]
-        if not os.path.exists(dirpath):
-            os.mkdir(dirpath)
-        url = self.get_url(result)
-        if url:
-            client.downloadPage(url, filename)
+    def get_icon(self, opts):
+        deferred = self._get_icon(opts)
+        deferred.addCallback(self.download_icon, opts)
+        return None, deferred
 
+    def download_icon(self, url, opts):
+        filename = self.get_filename(opts)
+        deferred = client.downloadPage(url, filename)
+        deferred.addCallback(lambda value: filename)
 
 class AmazonBackend(URLFetcherBackend):
     URL = "http://images.amazon.com/images/P/%s.01._SCLZZZZZZZ_.jpg"
@@ -124,60 +126,44 @@ class AmazonBackend(URLFetcherBackend):
         ecs.setSecretAccessKey(config["secret_key"])
         self.ecs = ecs
     
-    def get_icon(self, opts):
+    def _get_icon(self, opts):
         while True:
             try:
                 result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
                 result = result[0]
-                return self.get_filename(opts), result
-            
+                return defer.succeed(self.URL % result.ASIN)
             except (KeyError, self.ecs.SignatureDoesNotMatch), e:
-                return None, None
+                return defer.fail()
             except self.ecs.InternalError:
                 time.sleep(0.5)
-
-    def get_url(self, result):
-        return self.URL % result.ASIN
-
+    
 class LastFmBackend(URLFetcherBackend):
     def __init__(self, config):
+        self.config = config
         self.api = xmlrpc.Proxy("http://ws.audioscrobbler.com/2.0/")
 
-    def get_icon(self, opts):
-        try:
-            results = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=config['api_key']))
-            return self.get_filename(opts), next(iter(results), None)
-        except KeyError:
-            return None, None
-
-    def get_url(self, result):
-        def get_largest(images):
-            for size in ("mega", "extralarge", "large", "medium", "small"):
-                try:
-                    return element.find("./image[@size='%s']" % (size,))
-                except KeyError:
-                    continue
-
-        tree = etree.parse(result)
-        
-        try:
-            image = get_largest(tree.getroot()[0].find("trackmatches").find("track"))
+    def _get_icon(self, opts):
+        deferred = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=self.config['api_key']))
+        parse_results = parse_results()
+        deferred.addCallback(parse_results)
+        return deferred
+    
+        def parse_results(results):
+            def get_largest(element):
+                for size in ("mega", "extralarge", "large", "medium", "small"):
+                    result = element.find("./image[@size='%s']" % (size,))
+                    if result:
+                        return result
+                    
+            tree = etree.parse(result)
+            track = tree.getroot()[0].find("trackmatches").find("track")[0]
+                
+            image = get_largest(track)
             if image: return image
-        except AttributeError:
-            pass
-     
-        try:
-            image = get_largest(result.album.image)
-            if image: return image
-        except AttributeError:
-            pass
-         
-        try:
+            
             image = get_largest(result.artist.image)
             if image: return image
-        except AttributeError:
-            pass
-        
+    
 class MusicDirBackend(CoverBackend):
     def __init__(self, config):
         self.cover_names = make_list(config['search_names'])
@@ -200,8 +186,6 @@ class MusicDirBackend(CoverBackend):
         if covers:
             cover = sorted(covers.items())[0][1]
             return os.path.join(path, cover), None
-
-        return None, None
 
 class CoversDirBackend(CoverBackend):
     def get_icon(self, opts):
@@ -254,21 +238,16 @@ def template_substitute_default(self, args, default=''):
 
 Template.substitute_default = template_substitute_default
 
-class MPDFactory(protocol.ReconnectingClientFactory):
-    protocol = MPDProtocol
-
-
-
 class MPDNotifyDaemon(object):
 
     def __init__(self):
-        config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
-        covers_config = config['covers']
+        self.config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
+        covers_config = self.config['covers']
         cover_size      = tuple(int(n) for n in covers_config['size'])
-        backends = []
+        self.backends = []
 
         for backend in make_list(covers_config['backends']):
-            backends.append(BACKENDS[backend](config.get('covers:backend:'+backend, {})))
+            self.backends.append(BACKENDS[backend](self.config.get('covers:backend:'+backend, {})))
     
     def get_opts(self, joiner):
         def parse_time(opts):
@@ -279,10 +258,10 @@ class MPDNotifyDaemon(object):
 
         opts = dict()
 
-        opts.update(self.client.status())
+        opts.update(self.client.status(blocking=True))
         opts.update(parse_time(opts))
-        opts.update(self.client.stats())
-        opts.update(self.client.currentsong())
+        opts.update(self.client.stats(blocking=True))
+        opts.update(self.client.currentsong(blocking=True))
         opts.update(dict(pretty_state=pretty_state[opts['state']]))
 
         # If we have multiple tags, join them.
@@ -296,7 +275,7 @@ class MPDNotifyDaemon(object):
         # And format our stuff.
         title_format = PercentTemplate(title)
         body_format  = PercentTemplate(body)
-    
+        
         opts = self.get_opts(tags_joiner)
         opts['icon'] = icon
 
@@ -305,61 +284,66 @@ class MPDNotifyDaemon(object):
         # Covers are enabled.
         if enable_covers and "file" in opts:
         
-            for backend in backends:
-                cover, async = backend.get_icon(opts)
+            for backend in self.backends:
+                cover, deferred = backend.get_icon(opts)
                 
-                if cover:
+                if cover or deferred:
                     break
-
-            if cover and os.path.exists(cover) and not async:
+                
+            if cover and os.path.exists(cover):
                 final_image = backend.resize_image(cover)
             
         title = title_format.substitute_default(opts)
         body  = cgi.escape(body_format.substitute_default(opts))
-    
+        
         # And launch the notification!
         notification = pynotify.Notification(title, body, final_image)
         notification.show()
         
-        if enabled_covers and async:
-            backend.handle_async(cover, async)
-            cover = backend.resize_image(cover)
-            
+        if enable_covers and deferred:
+            deferred.addCallback(self.update_notification, notification, title, body)
+
+    def update_notification(self, deferred, notification, title, body):
+        def internal(self, cover):
             notification.update(title, body, cover)
             notification.show()
+            
+        deferred.addCallback(internal)
     
     def display_notification_config(self, config_name):
         # If we don't want to display a notification,
         # don't do so.
-        if "notification_%s" % config_name not in config:
+        if "notification_%s" % config_name not in self.config:
             return
     
         # Get our configuration
-        not_cfg = config["notification_%s" % config_name]
+        not_cfg = self.config["notification_%s" % config_name]
         title       = not_cfg.get("title_format", "")
         body        = not_cfg.get("body_format",  "")
         tags_joiner = not_cfg.get("tags_joiner",  ", ")
         covers      = not_cfg.get("covers",       False)
         icon        = not_cfg.get("icon",         "")
         
-        display_notification(title, body, covers, tags_joiner, icon)
+        self.display_notification(title, body, covers, tags_joiner, icon)
     
     
-    def idle_finished(data):
+    def idle_finished(self, reasons):
+        print reasons
         for reason in reasons:
-            display_notification_config(config_name)
-
+            self.display_notification_config(reason)
+            
         deferred = self.client.idle()
-        deferred.addCallback(idle_finished)
+        deferred.addCallback(self.idle_finished)
 
-    def run():
-        self.factory = MPDFactory()
+    def received_client(self, client):
+        self.client = client
+        self.idle_finished([])
 
-        # Idle for a reason.
-        deferred = self.client.idle()
-        deferred.addCallback(idle_finished)
-    
-        reactor.connectTCP(config['daemon']['host'], config['daemon']['port'], factory)
+    def run(self):
+        factory = MPDFactory()
+        factory.connectionMade = defer.Deferred()
+        factory.connectionMade.addCallback(self.received_client)
+        reactor.connectTCP(self.config['daemon']['host'], int(self.config['daemon']['port']), factory)
         reactor.run()
 
 def help_command(command=""):
