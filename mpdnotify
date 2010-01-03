@@ -314,8 +314,6 @@ class MPDNotifyDaemon(object):
         cover = backend.resize_image(cover, self.cover_size)
         notification.update(title, body, cover)
         notification.show()
-        
-        deferred.addCallback(internal)
 
     @defer.inlineCallbacks
     def display_notification_config(self, config_name):
