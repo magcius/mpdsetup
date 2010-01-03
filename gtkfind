@@ -21,9 +21,6 @@ import gtk
 import sys
 import os
 
-import warnings
-warnings.simplefilter("ignore", DeprecationWarning)
-
 from twisted.internet import gtk2reactor
 gtk2reactor.install()
 

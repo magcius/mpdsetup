@@ -4,9 +4,6 @@
 import os.path
 import sys
 
-import warnings
-warnings.simplefilter('ignore', DeprecationWarning)
-
 from lepl import Node, Word, Regexp, String, Drop, Delayed, Eos, Separator, Or
 from mpd import MPDFactory
 from twisted.internet import reactor, defer

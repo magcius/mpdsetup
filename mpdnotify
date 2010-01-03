@@ -30,9 +30,6 @@ import cgi
 import pynotify
 import urllib2
 
-import warnings
-warnings.simplefilter("ignore", (DeprecationWarning, SyntaxWarning))
-
 try:
     from lxml import etree
 except ImportError:
@@ -87,10 +84,10 @@ class CoverBackend(object):
     def get_icon(self, opts):
         return None, None
 
-    def get_filename(self, opts):
+    def get_filename(self, opts, filename=None):
         return os.path.join(os.path.expanduser("~/.covers"),
                             opts['artist'].replace("/", " "),
-                            "%s.jpg" % opts.get('album', "no-album").replace("/", " "))
+                            "%s.jpg" % (filename if filename else opts.get("album", "no-album").replace("/", " ")))
 
     def resize_image(self, filename, size):
         cover_small  = "%s.small%s" % os.path.splitext(filename)
@@ -108,11 +105,13 @@ class CoverBackend(object):
 class URLFetcherBackend(CoverBackend):
     def get_icon(self, opts):
         deferred = self._get_icon(opts)
-        deferred.addCallback(self.download_icon, opts)
+        if deferred:
+            deferred.addCallback(self.download_icon, opts)
         return None, deferred
 
-    def download_icon(self, url, opts):
-        filename = self.get_filename(opts)
+    def download_icon(self, result, opts):
+        url, filename = result
+        filename = self.get_filename(opts, filename)
         dirpath = os.path.dirname(filename)
         if not os.path.exists(dirpath):
             os.mkdir(dirpath)
@@ -133,9 +132,9 @@ class AmazonBackend(URLFetcherBackend):
             try:
                 result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
                 result = result[0]
-                return defer.succeed(self.URL % str(result.ASIN))
-            except (KeyError, self.ecs.SignatureDoesNotMatch), e:
-                return defer.fail()
+                return defer.succeed((result.album, self.URL % str(result.ASIN)))
+            except KeyError, e:
+                return None
             except self.ecs.InternalError:
                 time.sleep(0.5)
     
@@ -145,26 +144,34 @@ class LastFmBackend(URLFetcherBackend):
         self.api = xmlrpc.Proxy("http://ws.audioscrobbler.com/2.0/")
 
     def _get_icon(self, opts):
-        deferred = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=self.config['api_key']))
-        parse_results = parse_results()
-        deferred.addCallback(parse_results)
-        return deferred
-    
-        def parse_results(results):
-            def get_largest(element):
-                for size in ("mega", "extralarge", "large", "medium", "small"):
-                    result = element.find("./image[@size='%s']" % (size,))
-                    if result:
-                        return result
-                    
-            tree = etree.parse(result)
-            track = tree.getroot()[0].find("trackmatches").find("track")[0]
-                
-            image = get_largest(track)
-            if image: return image
+
+        def get_largest(element):
+            for size in ("mega", "extralarge", "large", "medium", "small"):
+                result = element.find("./image[@size='%s']" % (size,))
+                if result is not None:
+                    return result.text
+        
+        def parse_track_results(result):
+            tree = etree.XML(result.replace('\\"', '"').encode("utf8"))
+            track = tree[0].find("trackmatches").find("track")
             
-            image = get_largest(result.artist.image)
-            if image: return image
+            image = get_largest(track)
+            if image: return image, None
+            
+            deferred = self.api.callRemote("artist.search", dict(artist=opts['artist'], api_key=self.config['api_key']))
+            deferred.addCallback(parse_artist_results)
+            return deferred
+        
+        def parse_artist_results(result):
+            tree = etree.XML(result.replace('\\"', '"').encode("utf8"))
+            track = tree[0].find("artistmatches").find("artist")
+
+            image = get_largest(track)
+            if image: return image, "artist_IMAGE"
+        
+        deferred = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=self.config['api_key']))
+        deferred.addCallback(parse_track_results)
+        return deferred
     
 class MusicDirBackend(CoverBackend):
     def __init__(self, config):
