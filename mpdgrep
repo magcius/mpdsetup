@@ -18,6 +18,8 @@ import os
 
 from query import search, parse_bash_quotes, play, run
 
+from twisted.internet import reactor
+
 def main(client):
     terms = parse_bash_quotes(sys.argv[1:])
 
@@ -51,5 +53,7 @@ def main(client):
     
     # Get the next song and play it.
     play(results[index]['file'], client)
+
+    reactor.stop()
 
 run(main)
