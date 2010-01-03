@@ -198,13 +198,14 @@ class MusicDirBackend(CoverBackend):
 
 class CoversDirBackend(CoverBackend):
     def get_icon(self, opts):
-        if 'artist' not in opts or 'album' not in opts:
+        if 'artist' not in opts:
             return None, None
-
-        cover = self.get_filename(opts)
         
-        if os.path.exists(cover):
-            return cover, None
+        for filename in (None, "artist_IMAGE"):
+            cover = self.get_filename(opts, filename)
+            
+            if os.path.exists(cover):
+                return cover, None
         
         return None, None
 
