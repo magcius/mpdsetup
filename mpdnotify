@@ -224,7 +224,7 @@ class GTKIconThemeBackend(CoverBackend):
 BACKENDS = dict()
 BACKENDS["amazon"]   = AmazonBackend
 BACKENDS["musicdir"] = MusicDirBackend
-BACKENDS[".covers"]  = CoversDirBackend
+BACKENDS["covers"]   = CoversDirBackend
 BACKENDS["icons"]    = GTKIconThemeBackend
 BACKENDS["lastfm"]   = LastFmBackend
 
