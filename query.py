@@ -150,10 +150,10 @@ def search(query, client):
 
 @defer.inlineCallbacks
 def play(filename, client):
-    songs = yield client.playlistfind('file', filename)
+    songs = list((yield client.playlistfind('file', filename)))
     songid = None
     if songs:
-        songid = list(songs)[0]['id']
+        songid = songs[0]['id']
     else:
         songid = yield client.addid(filename)
     yield client.playid(songid)
