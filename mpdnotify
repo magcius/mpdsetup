@@ -111,6 +111,8 @@ class URLFetcherBackend(CoverBackend):
 
     def download_icon(self, result, opts):
         url, filename = result
+        if not url or not filename:
+            return None
         filename = self.get_filename(opts, filename)
         dirpath = os.path.dirname(filename)
         if not os.path.exists(dirpath):
@@ -168,6 +170,7 @@ class LastFmBackend(URLFetcherBackend):
 
             image = get_largest(track)
             if image: return image, "artist_IMAGE"
+            return None, None
         
         deferred = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=self.config['api_key']))
         deferred.addCallback(parse_track_results)
@@ -312,9 +315,10 @@ class MPDNotifyDaemon(object):
             deferred.addCallback(self.update_notification, backend, notification, title, body)
 
     def update_notification(self, cover, backend, notification, title, body):
-        cover = backend.resize_image(cover, self.cover_size)
-        notification.update(title, body, cover)
-        notification.show()
+        if cover:
+            cover = backend.resize_image(cover, self.cover_size)
+            notification.update(title, body, cover)
+            notification.show()
 
     @defer.inlineCallbacks
     def display_notification_config(self, config_name):
