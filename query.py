@@ -185,8 +185,7 @@ def parse_bash_quotes(args):
 
 def run(main):
     factory = MPDFactory()
-    factory.connectionMade = defer.Deferred()
-    factory.connectionMade.addCallback(main)
+    factory.connectionMade = main
     reactor.connectTCP(os.getenv("MPD_HOST", "localhost"), os.getenv("MPD_PORT", 6600), factory)
     reactor.run()
 

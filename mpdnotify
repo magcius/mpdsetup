@@ -111,7 +111,7 @@ class URLFetcherBackend(CoverBackend):
 
     def download_icon(self, result, opts):
         url, filename = result
-        if not url or not filename:
+        if not url:
             return None
         filename = self.get_filename(opts, filename)
         dirpath = os.path.dirname(filename)
@@ -132,9 +132,9 @@ class AmazonBackend(URLFetcherBackend):
     def _get_icon(self, opts):
         while True:
             try:
-                result = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
-                result = result[0]
-                return defer.succeed((result.album, self.URL % str(result.ASIN)))
+                results = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
+                result = results[0]
+                return defer.succeed((self.URL % str(result.ASIN), None))
             except KeyError, e:
                 return None
             except self.ecs.InternalError:
@@ -359,8 +359,7 @@ class MPDNotifyDaemon(object):
 
     def run(self):
         factory = MPDFactory()
-        factory.connectionMade = defer.Deferred()
-        factory.connectionMade.addCallback(self.received_client)
+        factory.connectionMade = self.received_client
         reactor.connectTCP(self.config['daemon']['host'], int(self.config['daemon']['port']), factory)
         reactor.run()
 
