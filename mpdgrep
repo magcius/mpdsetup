@@ -37,7 +37,7 @@ def main(client):
         return
     
     # Get the song ids and the current song id.
-    currentfile = yield client.currentsong().get("file", None)
+    currentfile = (yield client.currentsong()).get("file", None)
     
     # If the current song is in the
     # search results, go to the next
