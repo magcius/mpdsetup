@@ -26,6 +26,8 @@ gtk2reactor.install()
 
 from twisted.internet import reactor, defer
 
+from itertools import count
+
 from query import search, play, run
 
 RETURN_KEY, _ = gtk.accelerator_parse("Return")
@@ -38,7 +40,7 @@ class GUI(object):
 
     def destroy(self, widget=None, data=None):
         for id in self.ids:
-            client.deleteid(id)
+            self.client.deleteid(id)
         reactor.stop()
 
     @defer.inlineCallbacks
@@ -52,12 +54,14 @@ class GUI(object):
         results = yield search(query, self.client)
         self.liststore.clear()
 
+        currentsong = yield self.client.currentsong()
+
         if len(results) == 1:
             yield play(results[0]['file'], self.client)
             self.destroy()
         else:
             for D in results:
-                self.liststore.append([D['file'], D.get('artist', ''), D.get('album', ''), D.get('title', '')])
+                self.liststore.append((D['file'], D.get('artist', ''), D.get('album', ''), D.get('title', ''), D['file'] == currentsong['file']))
 
             if len(results) > 1:
                 self.treeview.grab_focus()
@@ -101,6 +105,12 @@ class GUI(object):
     
     def disable(self):
         self.set_sensitive(False)
+
+    def is_playing(self, column, cell, model, it):
+        if model.get_value(it, 4):
+            cell.set_property('stock-id', gtk.STOCK_MEDIA_PLAY)
+        else:
+            cell.set_property('stock-id', '')
     
     def __init__(self, client):
 
@@ -152,21 +162,25 @@ class GUI(object):
         buttonalign.add(buttonbox)
         buttonalign.show()
         
-        cell = gtk.CellRendererText()
-        
-        self.liststore = liststore = gtk.ListStore(str, str, str, str)
+        self.liststore = liststore = gtk.ListStore(str, str, str, str, bool)
         self.treeview  = treeview  = gtk.TreeView(liststore)
+
+        renderer = gtk.CellRendererPixbuf()
+        col = gtk.TreeViewColumn("", renderer)
+        col.set_sizing(gtk.TREE_VIEW_COLUMN_FIXED)
+        col.set_fixed_width(24)
+        col.set_cell_data_func(renderer, self.is_playing)
+        treeview.append_column(col)
         
-        col1 = gtk.TreeViewColumn("Artist", cell, text=1)
-        col1.set_resizable(True)
-        col2 = gtk.TreeViewColumn("Album",  cell, text=2)
-        col2.set_resizable(True)
-        col3 = gtk.TreeViewColumn("Title", cell, text=3)
-        col3.set_resizable(True)
+        for id, title in zip(count(1), ("Artist", "Album", "Title")):
+            renderer = gtk.CellRendererText()
+            
+            col = gtk.TreeViewColumn(title, renderer, text=id)
+            col.set_resizable(True)
+            col.set_expand(True)
+            col.set_sort_column_id(id)
+            treeview.append_column(col)
         
-        treeview.append_column(col1)
-        treeview.append_column(col2)
-        treeview.append_column(col3)
         treeview.connect("key-release-event", self.treeview_key)
         treeview.connect("button-press-event", self.treeview_click)
         treeview.show()
