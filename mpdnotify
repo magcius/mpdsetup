@@ -87,7 +87,9 @@ class CoverBackend(object):
     def get_filename(self, opts, filename=None):
         return os.path.join(os.path.expanduser("~/.covers"),
                             opts['artist'].replace("/", " "),
-                            "%s.jpg" % (filename if filename else opts.get("album", "no-album").replace("/", " ")))
+                            "%s.jpg" % (filename if filename else \
+                                (opts.get("album", "no-album") or "no-album") \
+                                            .replace("/", " ")))
 
     def resize_image(self, filename, size):
         cover_small  = "%s.small%s" % os.path.splitext(filename)
