@@ -292,7 +292,7 @@ class MPDNotifyDaemon(object):
         opts = yield self.get_opts(tags_joiner)
         opts['icon'] = icon
 
-        cover, async, final_image = None, None, None
+        cover, async, final_image, deferred = None, None, None, None
         
         # Covers are enabled.
         if enable_covers and "file" in opts:
