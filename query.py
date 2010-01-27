@@ -128,16 +128,17 @@ with Separator(spaces):
 # ================================================================================
 
 def parse_query(string):
-    ast = query.parse(string)
+    result = query.parse(string)
 
     # Fallback for old-style mpdgrep search.
-    if ast is None:
+    if result is None:
         return Comparison(('tag_', 'any'), ('op', 'like'), ('value', string))
-    
-    folded = ast[0].unfold_outer()
+
+    ast = result[0]
+    folded = ast.unfold_outer()
     if folded is not None:
         return folded
-    return ast[0]
+    return ast
 
 @defer.inlineCallbacks
 def search_ast(ast, client):
