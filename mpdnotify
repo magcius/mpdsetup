@@ -254,8 +254,9 @@ class MPDNotifyDaemon(object):
     def __init__(self):
         self.config = ConfigObj(os.path.expanduser("~/.mpdnotify.conf"))
         covers_config = self.config['covers']
-        self.cover_size      = tuple(int(n) for n in covers_config['size'])
+        self.cover_size = tuple(int(n) for n in covers_config['size'])
         self.backends = []
+        self.notification = None
 
         for backend in make_list(covers_config['backends']):
             self.backends.append(BACKENDS[backend](self.config.get('covers:backend:'+backend, {})))
@@ -310,17 +311,21 @@ class MPDNotifyDaemon(object):
         body  = cgi.escape(body_format.substitute_default(opts))
         
         # And launch the notification!
-        notification = pynotify.Notification(title, body, final_image)
-        notification.show()
+        if self.notification is None:
+            self.notification = pynotify.Notification(title, body, final_image)
+        else:
+            self.notification.update(title, body, final_image)
+
+        self.notification.show()
         
         if enable_covers and deferred:
-            deferred.addCallback(self.update_notification, backend, notification, title, body)
+            deferred.addCallback(self.update_notification, backend, title, body)
 
-    def update_notification(self, cover, backend, notification, title, body):
+    def update_notification(self, cover, backend, title, body):
         if cover:
             cover = backend.resize_image(cover, self.cover_size)
-            notification.update(title, body, cover)
-            notification.show()
+            self.notification.update(title, body, cover)
+            self.notification.show()
 
     @defer.inlineCallbacks
     def display_notification_config(self, config_name):
