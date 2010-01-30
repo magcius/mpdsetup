@@ -141,6 +141,8 @@ class AmazonBackend(URLFetcherBackend):
                 return None
             except self.ecs.InternalError:
                 time.sleep(0.5)
+            except self.ecs.SignatureDoesNotMatch:
+                return None
     
 class LastFmBackend(URLFetcherBackend):
     def __init__(self, config):
@@ -159,8 +161,9 @@ class LastFmBackend(URLFetcherBackend):
             tree = etree.XML(result.replace('\\"', '"').encode("utf8"))
             track = tree[0].find("trackmatches").find("track")
             
-            image = get_largest(track)
-            if image: return image, None
+            if track is not None:
+                image = get_largest(track)
+                if image: return image, None
             
             deferred = self.api.callRemote("artist.search", dict(artist=opts['artist'], api_key=self.config['api_key']))
             deferred.addCallback(parse_artist_results)
@@ -170,8 +173,9 @@ class LastFmBackend(URLFetcherBackend):
             tree = etree.XML(result.replace('\\"', '"').encode("utf8"))
             track = tree[0].find("artistmatches").find("artist")
 
-            image = get_largest(track)
-            if image: return image, "artist_IMAGE"
+            if track is not None:
+                image = get_largest(track)
+                if image: return image, "artist_IMAGE"
             return None, None
         
         deferred = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=self.config['api_key']))
@@ -317,12 +321,14 @@ class MPDNotifyDaemon(object):
             self.notification.update(title, body, final_image)
 
         self.notification.show()
+        self.needs_update = False
         
         if enable_covers and deferred:
+            self.needs_update = True
             deferred.addCallback(self.update_notification, backend, title, body)
 
     def update_notification(self, cover, backend, title, body):
-        if cover:
+        if cover and self.needs_update:
             cover = backend.resize_image(cover, self.cover_size)
             self.notification.update(title, body, cover)
             self.notification.show()
