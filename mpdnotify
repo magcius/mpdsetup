@@ -205,6 +205,8 @@ class MusicDirBackend(CoverBackend):
             cover = sorted(covers.items())[0][1]
             return os.path.join(path, cover), None
 
+        return None, None
+
 class CoversDirBackend(CoverBackend):
     def get_icon(self, opts):
         if 'artist' not in opts:
