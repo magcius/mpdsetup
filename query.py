@@ -79,8 +79,13 @@ class CombiningOp(Node):
         if state is None:
             state = {}
             order = []
-        
-        defer.returnValue((self.op(*(next(node.search(client, state, order)) for node in self)), state, order))
+
+        L = []
+        for node in (node.search(client, state, order) for node in self):
+            node = yield node
+            L.append(node[0])
+
+        defer.returnValue((self.op(*L), state, order))
 
 # Fix a problem with the descriptor problem by using staticmethod.
 class AndNode(CombiningOp): op = staticmethod(set.intersection)

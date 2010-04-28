@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # Newer, shinier mpdgrep using Python!
 # Coded on the night of Sat, Oct 24, 2009 (7:15 PM to be exact!)
-# JP St. Pierre <jstpierre@mecheye.net>
+# Last updated on Sat, Mar 27, 2010
+# Jasper St. Pierre <jstpierre@mecheye.net>
 
 # Requires:
 #   

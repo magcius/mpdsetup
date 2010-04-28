@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # Newer, shinier mpdnotify using Python!
 # Coded on the night of Thu, Jun 25, 2009 (10:15 PM to be exact!)
-# Last updated on Sat, Jan 2, 2010
-# JP St. Pierre <jstpierre@mecheye.net>
+# Last updated on Sat, Mar 27, 2010
+# Jasper St. Pierre <jstpierre@mecheye.net>
 
 # Requires:
 #   
@@ -29,6 +29,7 @@ import os
 import cgi
 import pynotify
 import urllib2
+import functools
 
 try:
     from lxml import etree
@@ -132,6 +133,8 @@ class AmazonBackend(URLFetcherBackend):
         self.ecs = ecs
     
     def _get_icon(self, opts):
+        if 'album' not in opts or 'artist' not in opts:
+            return
         while True:
             try:
                 results = self.ecs.ItemSearch(opts['album'], Artist=opts['artist'], SearchIndex="Music")
@@ -177,6 +180,9 @@ class LastFmBackend(URLFetcherBackend):
                 image = get_largest(track)
                 if image: return image, "artist_IMAGE"
             return None, None
+
+        if 'title' not in opts or 'artist' not in opts:
+            return
         
         deferred = self.api.callRemote("track.search", dict(track=opts['title'], artist=opts['artist'], api_key=self.config['api_key']))
         deferred.addCallback(parse_track_results)
@@ -263,6 +269,7 @@ class MPDNotifyDaemon(object):
         self.cover_size = tuple(int(n) for n in covers_config['size'])
         self.backends = []
         self.notification = None
+        self.callback = None
 
         for backend in make_list(covers_config['backends']):
             self.backends.append(BACKENDS[backend](self.config.get('covers:backend:'+backend, {})))
@@ -356,12 +363,11 @@ class MPDNotifyDaemon(object):
         covers      = not_cfg.get("covers",       False)
         icon        = not_cfg.get("icon",         "")
 
-        if body:
+        if title:
             yield self.display_notification(title, body, covers, tags_joiner, icon)
 
     @defer.inlineCallbacks
     def idle_finished(self, reasons):
-        
         for reason in reasons:
             yield self.display_notification_config(reason)
         
@@ -370,7 +376,8 @@ class MPDNotifyDaemon(object):
 
     def received_client(self, client):
         self.client = client
-        self.idle_finished(['startup'])
+        if self.callback:
+            self.callback()
 
     def run(self):
         factory = MPDFactory()
@@ -378,9 +385,17 @@ class MPDNotifyDaemon(object):
         reactor.connectTCP(self.config['daemon']['host'], int(self.config['daemon']['port']), factory)
         reactor.run()
 
-def help_command(command=""):
+    @defer.inlineCallbacks
+    def display_notification_command(self, arg="", body="", icon="", *args):
+        if ("notification_%s" % arg) in self.config:
+            yield self.display_notification_config(arg)
+        else:
+            yield self.display_notification(arg, body, icon == "cover", "", icon)
+        reactor.stop()
+
+def help_command(daemon, command="", *args):
     if command == "":
-        print "mpdnotify - JP St. Pierre <jstpierre@mecheye.net>"
+        print "mpdnotify - Jasper St. Pierre <jstpierre@mecheye.net>"
         print "email me or post comments on the wiki, or msg me on #mpd"
         print "for feature suggestions for this program. I go by the alias magcius."
         print ""
@@ -397,16 +412,11 @@ def help_command(command=""):
         print "      display a notification having those title, body, and icon"
         print '      use the name "cover" for the icon parameter if you want'
         print "      to show cover art"
-
-def display_notification_command(arg="", body="", icon=""):
-    if ("notification_%s" % arg) in config:
-        display_notification_config(arg)
-    else:
-        display_notification(arg, body, icon == "cover", "", icon)
+    reactor.stop()
 
 COMMANDS = {
     "help":     help_command,
-    "display":  display_notification_command
+    "display":  MPDNotifyDaemon.display_notification_command,
 }
 
 if __name__ == "__main__":
@@ -416,19 +426,18 @@ if __name__ == "__main__":
         setproctitle.setproctitle("mpdnotify")
     except ImportError:
         pass
-    
-    if len(sys.argv) < 2:
-        # Start daemon.
-        # Here we go.
-        daemon = MPDNotifyDaemon()
-        daemon.run()
-        sys.exit(1)
-        
-    else:
+
+    daemon = MPDNotifyDaemon()
+
+    if len(sys.argv) > 1:
         command = sys.argv[1].lower().lstrip("-")
         if command in COMMANDS:
             args = sys.argv[2:] if len(sys.argv) > 2 else ()
-            COMMANDS[command](*args)
+            daemon.callback = functools.partial(COMMANDS[command], daemon, *args)
         else:
             print "no command by that name"
             print "use the 'help' command for available commands"
+    else:
+        daemon.callback = functools.partial(daemon.idle_finished, ['startup'])
+
+    daemon.run()
