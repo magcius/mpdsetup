@@ -1,3 +1,0 @@
-#!/bin/bash
-
-mpc prev > /dev/null

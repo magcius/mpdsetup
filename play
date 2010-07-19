@@ -1,3 +1,0 @@
-#!/bin/bash
-
-([ -n "$(mpc | grep "\[playing]")" ] > /dev/null) && (mpc seek 0 > /dev/null) || (mpc play > /dev/null);
