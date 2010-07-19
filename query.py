@@ -3,8 +3,17 @@
 
 import os.path
 import sys
+import logging
 
-from lepl import Node, Word, Regexp, String, Drop, Delayed, Eos, Separator, Or
+class NullLogger(logging.Handler):
+    def emit(self, record): pass
+NullLogger = NullLogger()
+logging.getLogger("lepl").addHandler(NullLogger)
+del NullLogger, logging
+
+from lepl import Node, Word, Regexp, String, Drop, Delayed, \
+     Eos, Separator, Or, FullFirstMatchException, DroppedSpace
+
 from mpd import MPDFactory
 from twisted.internet import reactor, defer
 
@@ -99,9 +108,7 @@ class Tag(Node):
 # Grammar
 # ================================================================================
 
-spaces = Drop(Regexp(r'\s*'))
-
-with Separator(spaces):
+with DroppedSpace():
     andExp = Delayed()
     value  = (String() | Word()) > 'value'
 
@@ -109,20 +116,20 @@ with Separator(spaces):
     and_   = Drop(Or('&&', '&', CIL('and')))
     
     tag    = (Drop("<") + Word() + Drop(">") |  Drop("%") + Word() + Drop("%")) > Tag
-    
+
     tagCO  = tag  [:,or_ ] > OrNode
     tagCA  = tagCO[:,and_] > AndNode
     tagC   = tagCA > 'coll'
-    
+
     comparator = Or('==', CIL('like')) > 'op'
-    
+
     comparison = (tagC & comparator & value) > Comparison
-    
+
     atom = (Drop('(') & andExp & Drop(')')) | \
            (Drop('[') & andExp & Drop(']')) | \
            (Drop('{') & andExp & Drop('}')) | \
            comparison
-    
+
     orExp   = atom [:,or_ ] > OrNode
     andExp += orExp[:,and_] > AndNode
 
@@ -133,10 +140,10 @@ with Separator(spaces):
 # ================================================================================
 
 def parse_query(string):
-    result = query.parse(string)
-
-    # Fallback for old-style mpdgrep search.
-    if result is None:
+    try:
+        result = query.parse(string)
+    except FullFirstMatchException:
+        # Fallback for old-style mpdgrep search.
         return Comparison(('tag_', 'any'), ('op', 'like'), ('value', string))
 
     ast = result[0]

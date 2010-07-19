@@ -16,13 +16,13 @@ Requirements
   
   - Older versions may work fine too
   
-* `LEPL >= 3.3`_
+* `LEPL >= 4.0`_
   
   - ``easy_install lepl`` should work
   
 * `python-mpd`_
   
-  - You may need the development version from git. You may not.
+  My fork.
 
 
 Query Grammar
@@ -100,4 +100,4 @@ works perfectly on my computer.
 .. _Python >= 2.6: http://www.python.org/
 .. _MPD >= 0.15:   http://www.musicpd.org/
 .. _LEPL >= 3.3:   http://www.acooke.org/lepl/
-.. _python-mpd:    http://git.thejat.be/python-mpd.git
+.. _python-mpd:    https://github.com/magcius/python-mpd

@@ -49,8 +49,7 @@ def main(client):
         S = " "
         if D['file'] == currentfile:
             index = (i+1)%len(results)
-            S = ">"
-        print "%s%s - %s - %s" % (S, D.get('artist', ''), D.get('album', ''), D.get('title', ''))
+        print "%s%s - %s - %s" % (">" if i == index, D.get('artist', ''), D.get('album', ''), D.get('title', ''))
     
     # Get the next song and play it.
     yield play(results[index]['file'], client)
